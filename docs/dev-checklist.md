@@ -45,7 +45,7 @@
 | Sprint | 主题 | 进度 |
 |--------|------|------|
 | Sprint 1 | 地基层：Types + Config + Transport | ✅ 12/12 |
-| Sprint 2 | 第一条垂直切片：OpenAI Chat 全通 | ⬜ 0/16 |
+| Sprint 2 | 第一条垂直切片：OpenAI Chat 全通 | ✅ 16/16 |
 | Sprint 3 | 横向扩展：Anthropic + 国内平台 | ⬜ 0/13 |
 | Sprint 4 | 编排层核心能力 | ⬜ 0/18 |
 | Sprint 5 | Hook 系统 + 配额 + 消费记录 | ⬜ 0/13 |
@@ -89,22 +89,22 @@
 
 | ID | 任务 | 产出文件 | 前置依赖 | 设计文档 | 状态 | 备注 |
 |----|------|---------|---------|---------|------|------|
-| 2.1.1 | Provider 基础接口 + ChatProvider 接口 | `pkg/provider/interface.go` | 1.2.* | §5.1 | ⬜ | 其他能力接口先占位 |
-| 2.1.2 | Capability 枚举 + capInterfaceMap | `pkg/provider/capability.go` | 2.1.1 | §5.2 | ⬜ | |
-| 2.1.3 | Registry（注册/查询/一致性校验） | `pkg/provider/registry.go` | 2.1.1, 2.1.2 | §5.3 | ⬜ | Register 时 reflect 检测接口实现 |
-| 2.2.1 | OpenAI Provider 结构体 + Name/Models/Supports/Close | `pkg/adapter/openai/provider.go` | 2.1.1, 1.4.1 | §6.1 | ⬜ | |
-| 2.2.2 | OpenAI Chat 非流式 | `pkg/adapter/openai/chat.go` | 2.2.1 | §6.1 | ⬜ | 请求几乎透传 |
-| 2.2.3 | OpenAI Chat 流式 | `pkg/adapter/openai/stream.go` | 2.2.1, 1.4.3 | §6.1 | ⬜ | goroutine 读 SSE → channel |
-| 2.2.4 | OpenAI Mapper（请求/响应映射） | `pkg/adapter/openai/mapper.go` | 2.2.1 | §6.1 | ⬜ | 基本透传，仅错误码映射 |
-| 2.3.1 | Manager 结构体 + New() 初始化 | `pkg/manager/manager.go` | 2.1.3, 1.3.1 | §7.1 | ⬜ | 首版极简，仅路由 |
-| 2.3.2 | Router（按 model 名查找，暂不做 Tier） | `pkg/manager/router.go` | 2.1.3 | §7.2 | ⬜ | |
-| 2.3.3 | Manager.Chat() 非流式入口 | `pkg/manager/manager.go` | 2.3.1, 2.3.2 | §7.1 | ⬜ | Router → Provider.Chat |
-| 2.3.4 | Manager.ChatStream() 流式入口 | `pkg/manager/manager.go` | 2.3.1, 2.3.2 | §7.1 | ⬜ | Router → Provider.ChatStream |
-| 2.4.1 | SDK Client 结构体 + New() / Close() | `pkg/gateway/client.go` | 2.3.1 | §12.1 | ⬜ | |
-| 2.4.2 | SDK Options（WithCache / WithHook / WithLogger） | `pkg/gateway/options.go` | 2.4.1 | §12.1 | ⬜ | 首版仅 WithLogger 生效 |
-| 2.5.1 | Chat HTTP Handler（非流式 + 流式 SSE） | `api/handler/chat.go` | 2.4.1 | §12 | ⬜ | |
-| 2.5.2 | API 路由注册 | `api/router.go` | 2.5.1 | §12 | ⬜ | |
-| 2.5.3 | cmd/server/main.go 薄壳 | `cmd/server/main.go` | 2.4.1, 2.5.2 | §12.1 | ⬜ | gateway.New → HTTP Handler → ListenAndServe |
+| 2.1.1 | Provider 基础接口 + ChatProvider 接口 | `pkg/provider/interface.go` | 1.2.* | §5.1 | ✅ | `0674a11` 含所有能力接口 |
+| 2.1.2 | Capability 枚举 + capInterfaceMap | `pkg/provider/capability.go` | 2.1.1 | §5.2 | ✅ | `0674a11` reflect.TypeFor |
+| 2.1.3 | Registry（注册/查询/一致性校验） | `pkg/provider/registry.go` | 2.1.1, 2.1.2 | §5.3 | ✅ | `0674a11` |
+| 2.2.1 | OpenAI Provider 结构体 + Name/Models/Supports/Close | `pkg/adapter/openai/provider.go` | 2.1.1, 1.4.1 | §6.1 | ✅ | `0674a11` |
+| 2.2.2 | OpenAI Chat 非流式 | `pkg/adapter/openai/chat.go` | 2.2.1 | §6.1 | ✅ | `0674a11` |
+| 2.2.3 | OpenAI Chat 流式 | `pkg/adapter/openai/stream.go` | 2.2.1, 1.4.3 | §6.1 | ✅ | `0674a11` |
+| 2.2.4 | OpenAI Mapper（请求/响应映射） | `pkg/adapter/openai/mapper.go` | 2.2.1 | §6.1 | ✅ | `0674a11` 内含在 chat.go |
+| 2.3.1 | Manager 结构体 + New() 初始化 | `pkg/manager/manager.go` | 2.1.3, 1.3.1 | §7.1 | ✅ | `0674a11` |
+| 2.3.2 | Router（按 model 名查找，暂不做 Tier） | `pkg/manager/router.go` | 2.1.3 | §7.2 | ✅ | `0674a11` 已含 Tier 路由 |
+| 2.3.3 | Manager.Chat() 非流式入口 | `pkg/manager/manager.go` | 2.3.1, 2.3.2 | §7.1 | ✅ | `0674a11` |
+| 2.3.4 | Manager.ChatStream() 流式入口 | `pkg/manager/manager.go` | 2.3.1, 2.3.2 | §7.1 | ✅ | `0674a11` |
+| 2.4.1 | SDK Client 结构体 + New() / Close() | `pkg/gateway/client.go` | 2.3.1 | §12.1 | ✅ | `0674a11` |
+| 2.4.2 | SDK Options（WithCache / WithHook / WithLogger） | `pkg/gateway/options.go` | 2.4.1 | §12.1 | ✅ | `0674a11` WithHook 待 Sprint 5 |
+| 2.5.1 | Chat HTTP Handler（非流式 + 流式 SSE） | `api/handler/chat.go` | 2.4.1 | §12 | ✅ | `0674a11` |
+| 2.5.2 | API 路由注册 | `api/router.go` | 2.5.1 | §12 | ✅ | `0674a11` |
+| 2.5.3 | cmd/server/main.go 薄壳 | `cmd/server/main.go` | 2.4.1, 2.5.2 | §12.1 | ✅ | `0674a11` |
 
 ### Sprint 2 里程碑验证
 
@@ -306,5 +306,6 @@
 
 | 日期 | 操作者 | 变更 |
 |------|--------|------|
+| 2026-02-23 | Claude | Sprint 2 完成 (2.1.1-2.5.3)，commit `0674a11` |
 | 2026-02-23 | Claude | Sprint 1 完成 (1.3.1-1.4.3)，commit `fcb252f` |
 | 2026-02-22 | Claude (初始创建) | 创建开发清单，全部任务状态为 ⬜ |
