@@ -1,0 +1,137 @@
+# LLM Gateway Configuration
+# Environment variables can be used with ${VAR_NAME} or ${VAR_NAME:-default}
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+  idle_timeout: 120s
+
+# Provider configurations
+providers:
+  openai:
+    base_url: "https://api.openai.com/v1"
+    api_key: "${OPENAI_API_KEY}"
+    rate_limit: 500
+
+  anthropic:
+    base_url: "https://api.anthropic.com/v1"
+    api_key: "${ANTHROPIC_API_KEY}"
+    rate_limit: 200
+
+  alibaba:
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key: "${DASHSCOPE_API_KEY}"
+    platform: "alibaba"
+    rate_limit: 300
+
+  # volcengine:
+  #   base_url: "https://ark.cn-beijing.volces.com/api/v3"
+  #   api_key: "${ARK_API_KEY}"
+  #   platform: "volcengine"
+  #   rate_limit: 300
+
+# Manager/Orchestration settings
+manager:
+  cache:
+    enabled: true
+    memory:
+      max_size: 1000
+      ttl: 5m
+    redis:
+      enabled: false
+      url: "${REDIS_URL:-redis://localhost:6379}"
+      ttl: 1h
+
+  circuit_breaker:
+    failure_threshold: 5
+    recovery_timeout: 30s
+
+  hedged_request:
+    enabled: true
+    delay: 500ms
+
+  retry:
+    max_attempts: 3
+    initial_delay: 100ms
+    max_delay: 5s
+    backoff_factor: 2.0
+    retry_budget: 0.1
+    deadline: 30s
+    budget_window: 60s
+
+  cooldown:
+    enabled: true
+    backoff_sequence: [10s, 30s, 60s, 120s, 300s]
+    max_failures: 5
+
+  quota:
+    enabled: false
+    store: "memory"
+    preconsumed_ttl: 10m
+
+  spend_writer:
+    enabled: false
+    batch_size: 100
+    flush_interval: 5s
+    queue_size: 10000
+    wal_path: "/var/lib/llm-gateway/spend.wal"
+
+  cost_calculator:
+    pricing_file: "config/models.yaml"
+    fallback_price:
+      input_per_1k: 0.001
+      output_per_1k: 0.002
+
+  timeout:
+    connect: 5s
+    first_token: 30s
+    total_non_stream: 120s
+    total_stream: 300s
+    idle_between_chunks: 30s
+
+  token_safety_margin: 256
+
+# Security settings
+security:
+  tenants_file: "config/tenants.yaml"
+
+  sanitize:
+    message_policy: "truncate"
+    truncate_length: 100
+
+  audit:
+    enabled: false
+    output: "file"
+    file_path: "/var/log/llm-gateway/audit.jsonl"
+    retention_days: 90
+
+  tool_sandbox:
+    enabled: false
+    allowed_domains: []
+    max_response_size: "1MB"
+    timeout: 10s
+
+# Secret management
+secret:
+  provider: "env"  # env / kms / vault
+  # kms:
+  #   region: "cn-hangzhou"
+  #   key_id: "alias/llm-gateway"
+  # vault:
+  #   addr: "https://vault.internal:8200"
+  #   path: "secret/data/llm-gateway"
+
+# Observability
+observability:
+  tracing:
+    enabled: false
+    exporter: "otlp"
+    endpoint: "${OTEL_ENDPOINT:-localhost:4317}"
+    sample: 0.1
+
+  metrics:
+    enabled: true
+    path: "/metrics"
+    port: 9090

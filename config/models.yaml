@@ -1,0 +1,189 @@
+# Model Catalog
+# Defines available models, their capabilities, and pricing
+
+model_catalog:
+  # ========== OpenAI Models ==========
+  - id: "gpt-4o"
+    provider: "openai"
+    tier: "large"
+    context_window: 128000
+    max_output: 16384
+    input_price: 0.0025
+    output_price: 0.01
+    capabilities:
+      chat: true
+      vision: true
+      tools: true
+      json_mode: true
+      streaming: true
+
+  - id: "gpt-4o-mini"
+    provider: "openai"
+    tier: "small"
+    context_window: 128000
+    max_output: 16384
+    input_price: 0.00015
+    output_price: 0.0006
+    capabilities:
+      chat: true
+      vision: true
+      tools: true
+      json_mode: true
+      streaming: true
+
+  - id: "gpt-4-turbo"
+    provider: "openai"
+    tier: "large"
+    context_window: 128000
+    max_output: 4096
+    input_price: 0.01
+    output_price: 0.03
+    capabilities:
+      chat: true
+      vision: true
+      tools: true
+      json_mode: true
+      streaming: true
+
+  - id: "text-embedding-3-small"
+    provider: "openai"
+    tier: "small"
+    context_window: 8191
+    input_price: 0.00002
+    output_price: 0
+    capabilities:
+      embedding: true
+
+  - id: "text-embedding-3-large"
+    provider: "openai"
+    tier: "large"
+    context_window: 8191
+    input_price: 0.00013
+    output_price: 0
+    capabilities:
+      embedding: true
+
+  # ========== Anthropic Models ==========
+  - id: "claude-sonnet-4-5-20250929"
+    provider: "anthropic"
+    tier: "large"
+    context_window: 200000
+    max_output: 8192
+    input_price: 0.003
+    output_price: 0.015
+    capabilities:
+      chat: true
+      vision: true
+      tools: true
+      json_mode: true
+      streaming: true
+      reasoning: true
+
+  - id: "claude-3-5-sonnet-20241022"
+    provider: "anthropic"
+    tier: "large"
+    context_window: 200000
+    max_output: 8192
+    input_price: 0.003
+    output_price: 0.015
+    capabilities:
+      chat: true
+      vision: true
+      tools: true
+      json_mode: true
+      streaming: true
+
+  - id: "claude-3-5-haiku-20241022"
+    provider: "anthropic"
+    tier: "small"
+    context_window: 200000
+    max_output: 8192
+    input_price: 0.0008
+    output_price: 0.004
+    capabilities:
+      chat: true
+      vision: true
+      tools: true
+      streaming: true
+
+  # ========== Alibaba (DashScope) Models ==========
+  - id: "qwen-max"
+    provider: "alibaba"
+    tier: "large"
+    context_window: 32768
+    max_output: 8192
+    input_price: 0.004
+    output_price: 0.012
+    capabilities:
+      chat: true
+      vision: true
+      tools: true
+      streaming: true
+
+  - id: "qwen-plus"
+    provider: "alibaba"
+    tier: "medium"
+    context_window: 131072
+    max_output: 8192
+    input_price: 0.0008
+    output_price: 0.002
+    capabilities:
+      chat: true
+      tools: true
+      streaming: true
+
+  - id: "qwen-turbo"
+    provider: "alibaba"
+    tier: "small"
+    context_window: 131072
+    max_output: 8192
+    input_price: 0.0003
+    output_price: 0.0006
+    capabilities:
+      chat: true
+      tools: true
+      streaming: true
+
+  - id: "qwen-vl-max"
+    provider: "alibaba"
+    tier: "large"
+    context_window: 32768
+    max_output: 2048
+    input_price: 0.003
+    output_price: 0.009
+    capabilities:
+      chat: true
+      vision: true
+      streaming: true
+
+# Tier-based routing configuration
+tier_routing:
+  small:
+    - provider: "alibaba"
+      model: "qwen-turbo"
+      priority: 1
+    - provider: "openai"
+      model: "gpt-4o-mini"
+      priority: 2
+    - provider: "anthropic"
+      model: "claude-3-5-haiku-20241022"
+      priority: 3
+
+  medium:
+    - provider: "alibaba"
+      model: "qwen-plus"
+      priority: 1
+    - provider: "openai"
+      model: "gpt-4o-mini"
+      priority: 2
+
+  large:
+    - provider: "openai"
+      model: "gpt-4o"
+      priority: 1
+    - provider: "anthropic"
+      model: "claude-sonnet-4-5-20250929"
+      priority: 2
+    - provider: "alibaba"
+      model: "qwen-max"
+      priority: 3
