@@ -44,7 +44,7 @@
 
 | Sprint | 主题 | 进度 |
 |--------|------|------|
-| Sprint 1 | 地基层：Types + Config + Transport | ⬜ 0/12 |
+| Sprint 1 | 地基层：Types + Config + Transport | 🔨 3/12 |
 | Sprint 2 | 第一条垂直切片：OpenAI Chat 全通 | ⬜ 0/16 |
 | Sprint 3 | 横向扩展：Anthropic + 国内平台 | ⬜ 0/13 |
 | Sprint 4 | 编排层核心能力 | ⬜ 0/18 |
@@ -64,10 +64,11 @@
 
 | ID | 任务 | 产出文件 | 前置依赖 | 设计文档 | 状态 | 备注 |
 |----|------|---------|---------|---------|------|------|
-| 1.1.1 | 初始化 go.mod | `go.mod` | — | §3 | 🔨 | Claude 开发中 |
-| 1.1.2 | 创建完整目录骨架 | 全部目录 + `.gitkeep` | — | §3 | ⬜ | 目录结构见 architecture-design.md §3 |
+| 1.1.1 | 初始化 go.mod | `go.mod` | — | §3 | ✅ | `f517292` |
+| 1.1.2 | 创建完整目录骨架 | 全部目录 + `.gitkeep` | — | §3 | ✅ | `f517292` 19个目录 |
+| 1.1.3 | Makefile（build/test/lint） | `Makefile` | — | — | ✅ | `f517292` |
 | 1.1.3 | Makefile（build/test/lint） | `Makefile` | — | — | ⬜ | |
-| 1.2.1 | Message / Content / ContentBlock 类型 | `pkg/types/message.go` | 1.1.1 | §4.1 | ⬜ | 关键：Content 的 JSON 双态序列化 |
+| 1.2.1 | Message / Content / ContentBlock 类型 | `pkg/types/message.go` | 1.1.1 | §4.1 | 🔨 | Claude 开发中 |
 | 1.2.2 | ChatRequest（含 Credentials）/ EmbedRequest 等请求类型 | `pkg/types/request.go` | 1.2.1 | §4.2 | ⬜ | |
 | 1.2.3 | ChatResponse / StreamEvent / EmbedResponse 等响应类型 | `pkg/types/response.go` | 1.2.1 | §4.2 | ⬜ | |
 | 1.2.4 | ModelTier / ModelConfig / ModelCapabilities | `pkg/types/model.go` | 1.1.1 | §4.3 | ⬜ | |
