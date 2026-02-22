@@ -64,7 +64,7 @@
 
 | ID | 任务 | 产出文件 | 前置依赖 | 设计文档 | 状态 | 备注 |
 |----|------|---------|---------|---------|------|------|
-| 1.1.1 | 初始化 go.mod | `go.mod` | — | §3 | ⬜ | |
+| 1.1.1 | 初始化 go.mod | `go.mod` | — | §3 | 🔨 | Claude 开发中 |
 | 1.1.2 | 创建完整目录骨架 | 全部目录 + `.gitkeep` | — | §3 | ⬜ | 目录结构见 architecture-design.md §3 |
 | 1.1.3 | Makefile（build/test/lint） | `Makefile` | — | — | ⬜ | |
 | 1.2.1 | Message / Content / ContentBlock 类型 | `pkg/types/message.go` | 1.1.1 | §4.1 | ⬜ | 关键：Content 的 JSON 双态序列化 |
