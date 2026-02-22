@@ -44,7 +44,7 @@
 
 | Sprint | 主题 | 进度 |
 |--------|------|------|
-| Sprint 1 | 地基层：Types + Config + Transport | 🔨 3/12 |
+| Sprint 1 | 地基层：Types + Config + Transport | ✅ 12/12 |
 | Sprint 2 | 第一条垂直切片：OpenAI Chat 全通 | ⬜ 0/16 |
 | Sprint 3 | 横向扩展：Anthropic + 国内平台 | ⬜ 0/13 |
 | Sprint 4 | 编排层核心能力 | ⬜ 0/18 |
@@ -67,18 +67,17 @@
 | 1.1.1 | 初始化 go.mod | `go.mod` | — | §3 | ✅ | `f517292` |
 | 1.1.2 | 创建完整目录骨架 | 全部目录 + `.gitkeep` | — | §3 | ✅ | `f517292` 19个目录 |
 | 1.1.3 | Makefile（build/test/lint） | `Makefile` | — | — | ✅ | `f517292` |
-| 1.1.3 | Makefile（build/test/lint） | `Makefile` | — | — | ⬜ | |
-| 1.2.1 | Message / Content / ContentBlock 类型 | `pkg/types/message.go` | 1.1.1 | §4.1 | 🔨 | Claude 开发中 |
-| 1.2.2 | ChatRequest（含 Credentials）/ EmbedRequest 等请求类型 | `pkg/types/request.go` | 1.2.1 | §4.2 | ⬜ | |
-| 1.2.3 | ChatResponse / StreamEvent / EmbedResponse 等响应类型 | `pkg/types/response.go` | 1.2.1 | §4.2 | ⬜ | |
-| 1.2.4 | ModelTier / ModelConfig / ModelCapabilities | `pkg/types/model.go` | 1.1.1 | §4.3 | ⬜ | |
-| 1.2.5 | ErrorCode / ProviderError / ErrorAction 四级分类 | `pkg/types/error.go` | 1.1.1 | §4.4 + §7.5 | ⬜ | |
-| 1.2.6 | TokenUsage / Cost | `pkg/types/usage.go` | 1.1.1 | §4.2 | ⬜ | |
-| 1.3.1 | Config 结构定义 + YAML 加载 + 环境变量替换 | `config/config.go` | 1.2.4 | §11 | ⬜ | 支持 ${ENV_VAR} |
-| 1.3.2 | 默认配置模板 | `config/config.yaml`, `config/models.yaml` | 1.3.1 | §11 | ⬜ | |
-| 1.4.1 | 统一 HTTP Client（Do / DoJSON / DoStream） | `pkg/transport/http_client.go` | 1.2.5 | §10.1 | ⬜ | |
-| 1.4.2 | AuthStrategy 接口 + BearerAuth / AnthropicAuth / GoogleAuth / DynamicAuth | `pkg/transport/auth.go` | 1.4.1 | §10.1 | ⬜ | DynamicAuth 实现 AuthStrategy 接口 |
-| 1.4.3 | SSE 通用解析器 | `pkg/transport/sse.go` | 1.4.1 | §9 | ⬜ | 处理 event:/data:/[DONE] |
+| 1.2.1 | Message / Content / ContentBlock 类型 | `pkg/types/message.go` | 1.1.1 | §4.1 | ✅ | `6ebabff` JSON双态序列化 |
+| 1.2.2 | ChatRequest（含 Credentials）/ EmbedRequest 等请求类型 | `pkg/types/request.go` | 1.2.1 | §4.2 | ✅ | `6ebabff` |
+| 1.2.3 | ChatResponse / StreamEvent / EmbedResponse 等响应类型 | `pkg/types/response.go` | 1.2.1 | §4.2 | ✅ | `6ebabff` |
+| 1.2.4 | ModelTier / ModelConfig / ModelCapabilities | `pkg/types/model.go` | 1.1.1 | §4.3 | ✅ | `6ebabff` |
+| 1.2.5 | ErrorCode / ProviderError / ErrorAction 四级分类 | `pkg/types/error.go` | 1.1.1 | §4.4 + §7.5 | ✅ | `6ebabff` |
+| 1.2.6 | TokenUsage / Cost | `pkg/types/usage.go` | 1.1.1 | §4.2 | ✅ | `6ebabff` |
+| 1.3.1 | Config 结构定义 + YAML 加载 + 环境变量替换 | `config/config.go` | 1.2.4 | §11 | ✅ | `fcb252f` 支持 ${ENV_VAR} |
+| 1.3.2 | 默认配置模板 | `config/config.yaml`, `config/models.yaml` | 1.3.1 | §11 | ✅ | `fcb252f` |
+| 1.4.1 | 统一 HTTP Client（Do / DoJSON / DoStream） | `pkg/transport/http_client.go` | 1.2.5 | §10.1 | ✅ | `fcb252f` |
+| 1.4.2 | AuthStrategy 接口 + BearerAuth / AnthropicAuth / GoogleAuth / DynamicAuth | `pkg/transport/auth.go` | 1.4.1 | §10.1 | ✅ | `fcb252f` DynamicAuth 实现 BYOK |
+| 1.4.3 | SSE 通用解析器 | `pkg/transport/sse.go` | 1.4.1 | §9 | ✅ | `fcb252f` SSEReader/SSEWriter |
 
 ---
 
@@ -307,4 +306,5 @@
 
 | 日期 | 操作者 | 变更 |
 |------|--------|------|
+| 2026-02-23 | Claude | Sprint 1 完成 (1.3.1-1.4.3)，commit `fcb252f` |
 | 2026-02-22 | Claude (初始创建) | 创建开发清单，全部任务状态为 ⬜ |
