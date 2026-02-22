@@ -161,3 +161,45 @@ type ProviderStatus struct {
 	CircuitOpen bool   `json:"circuit_open"`
 	Models      int    `json:"models"` // Number of available models
 }
+
+// AgentResponse represents a response from agent invocation.
+type AgentResponse struct {
+	AgentID  string     `json:"agent_id"`
+	Provider string     `json:"provider"`
+	Content  string     `json:"content"`
+	Usage    TokenUsage `json:"usage"`
+}
+
+// WorkflowResponse represents a response from workflow execution.
+type WorkflowResponse struct {
+	WorkflowID string         `json:"workflow_id"`
+	Provider   string         `json:"provider"`
+	Outputs    map[string]any `json:"outputs"`
+	Usage      TokenUsage     `json:"usage"`
+}
+
+// TaskStatus represents the status of an async task.
+type TaskStatus string
+
+const (
+	TaskStatusPending   TaskStatus = "pending"
+	TaskStatusRunning   TaskStatus = "running"
+	TaskStatusSucceeded TaskStatus = "succeeded"
+	TaskStatusFailed    TaskStatus = "failed"
+	TaskStatusCanceled  TaskStatus = "canceled"
+)
+
+// AsyncTask represents an asynchronous task (image/video generation).
+type AsyncTask struct {
+	ID         string     `json:"id"`
+	Type       string     `json:"type"` // "image_gen", "video_gen"
+	Status     TaskStatus `json:"status"`
+	Provider   string     `json:"provider"`
+	Model      string     `json:"model"`
+	Progress   int        `json:"progress,omitempty"`   // 0-100
+	ResultURL  string     `json:"result_url,omitempty"` // URL when complete
+	Error      string     `json:"error,omitempty"`      // Error message if failed
+	CreatedAt  int64      `json:"created_at"`
+	UpdatedAt  int64      `json:"updated_at"`
+	ExpiresAt  int64      `json:"expires_at,omitempty"` // When result URL expires
+}

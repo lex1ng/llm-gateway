@@ -158,3 +158,43 @@ type VideoGenRequest struct {
 	TenantID  string `json:"-"`
 	RequestID string `json:"-"`
 }
+
+// AgentRequest represents a request to invoke an agent.
+type AgentRequest struct {
+	AgentID  string    `json:"agent_id"`  // Agent identifier
+	Messages []Message `json:"messages"`  // Conversation messages
+	Stream   bool      `json:"stream,omitempty"`
+
+	// --- Routing Control ---
+	Provider string `json:"provider,omitempty"`
+
+	// --- Dynamic Credentials ---
+	Credentials map[string]string `json:"credentials,omitempty"`
+
+	// --- Extensions ---
+	Extra map[string]any `json:"extra,omitempty"`
+
+	// --- Internal ---
+	TenantID  string `json:"-"`
+	RequestID string `json:"-"`
+}
+
+// WorkflowRequest represents a request to run a workflow.
+type WorkflowRequest struct {
+	WorkflowID string         `json:"workflow_id"` // Workflow identifier
+	Inputs     map[string]any `json:"inputs"`      // Workflow inputs
+	Stream     bool           `json:"stream,omitempty"`
+
+	// --- Routing Control ---
+	Provider string `json:"provider,omitempty"`
+
+	// --- Dynamic Credentials ---
+	Credentials map[string]string `json:"credentials,omitempty"`
+
+	// --- Extensions ---
+	Extra map[string]any `json:"extra,omitempty"`
+
+	// --- Internal ---
+	TenantID  string `json:"-"`
+	RequestID string `json:"-"`
+}
