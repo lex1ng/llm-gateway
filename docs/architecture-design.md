@@ -842,49 +842,161 @@ type Manager struct {
     cooldowns       *CooldownManager            // Per-Model 冷却（NEW）
     rateLimiters    map[string]*RateLimiter
     tokenCounter    *TokenCounter
+    costCalculator  *CostCalculator             // 费用估算器（NEW）
     quotaManager    *QuotaManager               // 预扣+结算配额（NEW）
     spendWriter     *SpendWriter                // 异步消费批量写入（NEW）
     hookRegistry    *hook.Registry              // Hook 调度器（NEW）
+    retrier         *Retrier                    // 重试执行器（NEW）
     metrics         *Metrics
     config          *Config
 }
 
-// Chat 统一对话入口
+// CostCalculator 根据模型和 token 数估算费用
+type CostCalculator struct {
+    pricing map[string]ModelPricing  // model -> pricing
+}
+
+type ModelPricing struct {
+    InputPer1K  float64  // 输入每千 token 费用 (USD)
+    OutputPer1K float64  // 输出每千 token 费用 (USD)
+}
+
+func (c *CostCalculator) Estimate(model string, estimatedTokens int) float64 {
+    p, ok := c.pricing[model]
+    if !ok {
+        return 0  // 未知模型，返回 0 不限制
+    }
+    // 保守估算：假设 50% 输入 50% 输出
+    return float64(estimatedTokens) / 1000 * (p.InputPer1K + p.OutputPer1K) / 2
+}
+
+func (c *CostCalculator) Calculate(model string, inputTokens, outputTokens int) float64 {
+    p, ok := c.pricing[model]
+    if !ok {
+        return 0
+    }
+    return float64(inputTokens)/1000*p.InputPer1K + float64(outputTokens)/1000*p.OutputPer1K
+}
+
+// Chat 统一对话入口（完整执行链）
 func (m *Manager) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-    // 1. 选择 provider（路由返回类型安全的 ChatProvider，无需调用方断言）
-    cp, model, err := m.router.SelectChat(req)
-    if err != nil { return nil, err }
-
-    // 2. 限流检查
-    if err := m.rateLimiters[cp.Name()].Allow(); err != nil { ... }
-
-    // 3. 缓存查询（非流式、非 tool calling 时）
-    if !req.Stream && len(req.Tools) == 0 {
-        if cached := m.cache.Get(req); cached != nil { return cached, nil }
+    // ========== Phase 1: PreRoute Hook ==========
+    event := &hook.HookEvent{Request: req, Phase: hook.PhasePreRoute}
+    if err := m.hookRegistry.Dispatch(ctx, hook.PhasePreRoute, event); err != nil {
+        return nil, err  // PreRoute 可拦截请求
     }
 
-    // 4. Token headroom 计算
+    // ========== Phase 2: 路由选择 ==========
+    cp, model, err := m.router.SelectChat(req)
+    if err != nil {
+        return nil, err
+    }
+    event.Provider = cp.Name()
+    event.Model = model
+
+    // PostRoute Hook（非阻塞）
+    m.hookRegistry.Dispatch(ctx, hook.PhasePostRoute, event)
+
+    // ========== Phase 3: 限流检查 ==========
+    if err := m.rateLimiters[cp.Name()].Allow(); err != nil {
+        return nil, err
+    }
+
+    // ========== Phase 4: 缓存查询 ==========
+    if !req.Stream && len(req.Tools) == 0 {
+        if cached := m.cache.Get(req); cached != nil {
+            return cached, nil
+        }
+    }
+
+    // ========== Phase 5: 配额预扣 ==========
+    estimatedTokens := m.tokenCounter.Estimate(req)
+    estimatedCost := m.costCalculator.Estimate(model, estimatedTokens)
+    quotaID, err := m.quotaManager.PreConsume(ctx, req.TenantID, estimatedTokens, estimatedCost)
+    if err != nil {
+        return nil, err  // 配额不足
+    }
+
+    // ========== Phase 6: Token headroom 计算 ==========
     req.MaxTokens = m.tokenCounter.ClampMaxTokens(req, model)
 
-    // 5. 调用 provider（带熔断器保护，cp 已是 ChatProvider 无需断言）
-    resp, err := m.circuitBreakers[cp.Name()].Execute(func() (*ChatResponse, error) {
-        return cp.Chat(ctx, req)
-    })
-
-    // 6. 失败降级：尝试下一个 provider
-    if err != nil && isTransient(err) {
-        resp, err = m.fallbackChat(ctx, req, cp.Name())
+    // ========== Phase 7: 冷却检查 ==========
+    keyHash := hashKey(req.Credentials["api_key"])
+    if !m.cooldowns.IsAvailable(cp.Name(), keyHash, model) {
+        // 当前 key+model 处于冷却，尝试路由到其他 provider
+        cp, model, err = m.router.SelectChatExcluding(req, cp.Name())
+        if err != nil {
+            m.quotaManager.Rollback(ctx, quotaID)
+            return nil, fmt.Errorf("all providers in cooldown: %w", err)
+        }
     }
 
-    // 7. 缓存写入（带安全检查）
-    if err == nil && m.cache.IsSafeToCache(resp) {
+    // ========== Phase 8: PreCall Hook ==========
+    event.Phase = hook.PhasePreCall
+    if err := m.hookRegistry.Dispatch(ctx, hook.PhasePreCall, event); err != nil {
+        m.quotaManager.Rollback(ctx, quotaID)
+        return nil, err  // PreCall 可拦截请求
+    }
+
+    // ========== Phase 9: 调用 provider（带熔断器 + 重试 + Deadline） ==========
+    var resp *ChatResponse
+    err = m.circuitBreakers[cp.Name()].Execute(func() error {
+        var callErr error
+        resp, callErr = m.retrier.ExecuteWithDeadline(ctx, func() (*ChatResponse, error) {
+            return cp.Chat(ctx, req)
+        })
+        return callErr
+    })
+
+    // ========== Phase 10: 错误处理 + 冷却记录 ==========
+    if err != nil {
+        m.cooldowns.RecordFailure(cp.Name(), keyHash, model)
+        m.quotaManager.Rollback(ctx, quotaID)
+
+        // OnError Hook（非阻塞）
+        event.Error = err
+        m.hookRegistry.Dispatch(ctx, hook.PhaseOnError, event)
+
+        // 尝试 fallback
+        if isTransient(err) {
+            resp, err = m.fallbackChat(ctx, req, cp.Name())
+        }
+        if err != nil {
+            return nil, err
+        }
+    } else {
+        m.cooldowns.RecordSuccess(cp.Name(), keyHash, model)
+    }
+
+    // ========== Phase 11: 计算实际费用 ==========
+    actualCost := m.costCalculator.Calculate(model, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+
+    // ========== Phase 12: 配额结算（token + cost 原子性） ==========
+    m.quotaManager.Settle(ctx, quotaID, resp.Usage.TotalTokens, actualCost)
+
+    // ========== Phase 13: 消费记录（异步） ==========
+    m.spendWriter.Record(SpendUpdate{
+        TenantID:    req.TenantID,
+        Model:       model,
+        Provider:    cp.Name(),
+        InputTokens: resp.Usage.PromptTokens,
+        OutputTokens: resp.Usage.CompletionTokens,
+        Cost:        actualCost,
+    })
+
+    // ========== Phase 14: 缓存写入 ==========
+    if m.cache.IsSafeToCache(resp) {
         m.cache.Set(req, resp)
     }
 
-    // 8. 指标上报
-    m.metrics.RecordRequest(cp.Name(), model, resp, err)
+    // ========== Phase 15: OnSuccess Hook ==========
+    event.Response = resp
+    m.hookRegistry.Dispatch(ctx, hook.PhaseOnSuccess, event)
 
-    return resp, err
+    // ========== Phase 16: 指标上报 ==========
+    m.metrics.RecordRequest(cp.Name(), model, resp, nil)
+
+    return resp, nil
 }
 
 // ChatStream 统一流式入口
@@ -1114,8 +1226,68 @@ func ClassifyForRetry(err error) RetryDecision {
     }
 }
 
+// RetryBudgetTracker 滑动窗口重试预算跟踪器
+// 当一段时间内重试比例超过阈值时停止重试，防止雪崩
+type RetryBudgetTracker struct {
+    mu          sync.Mutex
+    window      time.Duration   // 滑动窗口长度，默认 60s
+    budget      float64         // 重试比例上限，如 0.1 = 10%
+    totalCount  int64           // 窗口内总请求数
+    retryCount  int64           // 窗口内重试请求数
+    lastReset   time.Time       // 上次重置时间
+}
+
+func NewRetryBudgetTracker(budget float64, window time.Duration) *RetryBudgetTracker {
+    return &RetryBudgetTracker{
+        window:    window,
+        budget:    budget,
+        lastReset: time.Now(),
+    }
+}
+
+func (t *RetryBudgetTracker) RecordRequest() {
+    t.mu.Lock()
+    defer t.mu.Unlock()
+    t.maybeReset()
+    t.totalCount++
+}
+
+func (t *RetryBudgetTracker) AllowRetry() bool {
+    t.mu.Lock()
+    defer t.mu.Unlock()
+    t.maybeReset()
+    if t.totalCount == 0 {
+        return true
+    }
+    return float64(t.retryCount)/float64(t.totalCount) < t.budget
+}
+
+func (t *RetryBudgetTracker) RecordRetry() {
+    t.mu.Lock()
+    defer t.mu.Unlock()
+    t.retryCount++
+}
+
+func (t *RetryBudgetTracker) maybeReset() {
+    if time.Since(t.lastReset) > t.window {
+        t.totalCount = 0
+        t.retryCount = 0
+        t.lastReset = time.Now()
+    }
+}
+
+// Retrier 重试执行器
+type Retrier struct {
+    policy        RetryPolicy
+    budgetTracker *RetryBudgetTracker
+    onRotateKey   func()
+}
+
 // ExecuteWithDeadline Deadline 驱动的重试执行器
 func (r *Retrier) ExecuteWithDeadline(ctx context.Context, fn func() (*ChatResponse, error)) (*ChatResponse, error) {
+    // 记录请求到预算跟踪器
+    r.budgetTracker.RecordRequest()
+
     // 设置全局 deadline
     if r.policy.Deadline > 0 {
         var cancel context.CancelFunc
@@ -1130,6 +1302,11 @@ func (r *Retrier) ExecuteWithDeadline(ctx context.Context, fn func() (*ChatRespo
             if remaining < r.policy.InitialDelay {
                 return nil, fmt.Errorf("deadline exceeded: remaining %v < min delay", remaining)
             }
+        }
+
+        // 重试前检查重试预算（首次请求跳过检查）
+        if attempt > 0 && !r.budgetTracker.AllowRetry() {
+            return nil, fmt.Errorf("retry budget exhausted: retry ratio exceeded %.0f%%", r.policy.RetryBudget*100)
         }
 
         resp, err := fn()
@@ -1149,6 +1326,9 @@ func (r *Retrier) ExecuteWithDeadline(ctx context.Context, fn func() (*ChatRespo
         case ActionRetry:
             // 继续下一次重试
         }
+
+        // 记录本次重试到预算跟踪器
+        r.budgetTracker.RecordRetry()
 
         select {
         case <-ctx.Done():
@@ -1467,17 +1647,27 @@ func (r *Registry) Register(h Hook) {
     r.hooks[h.Phase()] = append(r.hooks[h.Phase()], h)
 }
 
-func (r *Registry) Dispatch(ctx context.Context, phase Phase, event *HookEvent) {
+// Dispatch 调度指定阶段的 Hook
+// 阻塞语义：PreRoute / PreCall 阶段的 Hook 如果返回 error，中止请求（拦截器语义）
+// 非阻塞语义：PostCall / OnSuccess / OnError 等后置阶段的 Hook 如果返回 error，仅记录日志不影响主流程
+func (r *Registry) Dispatch(ctx context.Context, phase Phase, event *HookEvent) error {
     r.mu.RLock()
     hooks := r.hooks[phase]
     r.mu.RUnlock()
 
+    blocking := phase == PhasePreRoute || phase == PhasePreCall
+
     for _, h := range hooks {
         if err := h.Execute(ctx, event); err != nil {
-            // Hook 执行失败不阻塞主流程，仅记录日志
+            if blocking {
+                // 前置 Hook 返回 error → 中止请求（拦截器语义）
+                return fmt.Errorf("hook %q blocked request: %w", h.Name(), err)
+            }
+            // 后置 Hook 返回 error → 仅记录日志，不影响主流程
             slog.Warn("hook execution failed", "hook", h.Name(), "phase", phase, "error", err)
         }
     }
+    return nil
 }
 ```
 
@@ -1502,12 +1692,13 @@ func (h *MetricsHook) Execute(ctx context.Context, event *HookEvent) error {
     return metrics.Record(event)
 }
 
-// 自定义过滤 Hook（示例）
+// 自定义过滤 Hook（拦截器示例）
+// 注册在 PhasePreCall 阶段，返回 error 会中止请求
 type ContentFilterHook struct{}
 func (h *ContentFilterHook) Name() string { return "content_filter" }
 func (h *ContentFilterHook) Phase() Phase { return PhasePreCall }
 func (h *ContentFilterHook) Execute(ctx context.Context, event *HookEvent) error {
-    // 检查请求内容，必要时拦截
+    // PreCall 阶段返回 error → Dispatch 会中止请求（拦截器语义）
     if containsSensitiveContent(event.Request) {
         return ErrContentBlocked
     }
@@ -1522,12 +1713,34 @@ func (h *ContentFilterHook) Execute(ctx context.Context, event *HookEvent) error
 
 // SpendWriter 异步批量消费记录
 type SpendWriter struct {
-    queue    chan SpendUpdate
-    interval time.Duration  // 默认 60s
-    batchSize int           // 默认 100
-    db       SpendStorage
-    done     chan struct{}
+    queue     chan SpendUpdate
+    interval  time.Duration  // 默认 60s
+    batchSize int            // 默认 100
+    db        SpendStorage
+    wal       *WAL           // 本地 WAL 文件，同步写入也失败时的最终兜底
+    done      chan struct{}
 }
+
+// WAL 预写日志，用于极端情况下保证计费数据不丢失
+type WAL struct {
+    mu   sync.Mutex
+    file *os.File
+}
+
+func NewWAL(path string) (*WAL, error) {
+    f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+    if err != nil { return nil, err }
+    return &WAL{file: f}, nil
+}
+
+func (w *WAL) Append(update SpendUpdate) {
+    w.mu.Lock()
+    defer w.mu.Unlock()
+    data, _ := json.Marshal(update)
+    w.file.Write(append(data, '\n'))
+}
+
+func (w *WAL) Close() error { return w.file.Close() }
 
 type SpendUpdate struct {
     TenantID  string
@@ -1542,24 +1755,34 @@ type SpendStorage interface {
     BatchUpdate(ctx context.Context, updates []SpendUpdate) error
 }
 
-func NewSpendWriter(db SpendStorage, interval time.Duration, batchSize int) *SpendWriter {
+func NewSpendWriter(db SpendStorage, walPath string, interval time.Duration, batchSize int) (*SpendWriter, error) {
+    wal, err := NewWAL(walPath)
+    if err != nil {
+        return nil, fmt.Errorf("init WAL: %w", err)
+    }
     sw := &SpendWriter{
         queue:     make(chan SpendUpdate, 10000),
         interval:  interval,
         batchSize: batchSize,
         db:        db,
+        wal:       wal,
         done:      make(chan struct{}),
     }
     go sw.run()
-    return sw
+    return sw, nil
 }
 
 func (sw *SpendWriter) Record(update SpendUpdate) {
     select {
     case sw.queue <- update:
     default:
-        // 队列满时丢弃，记录指标
-        metrics.SpendWriterDropped.Inc()
+        // 队列满时降级为同步写入，保证计费数据不丢失
+        metrics.SpendWriterOverflow.Inc()
+        if err := sw.db.BatchUpdate(context.Background(), []SpendUpdate{update}); err != nil {
+            // 同步写入也失败，写入本地 WAL 文件作为最终兜底
+            slog.Error("spend record lost, writing to WAL", "tenant", update.TenantID, "error", err)
+            sw.wal.Append(update)
+        }
     }
 }
 
@@ -1595,12 +1818,20 @@ func (sw *SpendWriter) flush(updates []SpendUpdate) {
     // 按 tenant+model 合并后批量写入
     merged := sw.mergeUpdates(updates)
     if err := sw.db.BatchUpdate(context.Background(), merged); err != nil {
-        slog.Error("spend batch update failed", "count", len(merged), "error", err)
+        slog.Error("spend batch update failed, writing to WAL", "count", len(merged), "error", err)
+        // 批量写入失败，降级写入 WAL 保证数据不丢失
+        for _, u := range merged {
+            sw.wal.Append(u)
+        }
+        metrics.SpendWriterFlushFailed.Inc()
     }
 }
 
-func (sw *SpendWriter) Close() {
+func (sw *SpendWriter) Close() error {
     close(sw.done)
+    // 等待 run() 退出（flush 完剩余数据）
+    // 然后关闭 WAL 文件
+    return sw.wal.Close()
 }
 ```
 
@@ -1616,10 +1847,30 @@ type QuotaManager struct {
 }
 
 type QuotaStore interface {
+    // GetQuota 获取租户配额信息
     GetQuota(ctx context.Context, tenantID string) (*TenantQuota, error)
-    PreConsume(ctx context.Context, tenantID string, estimated int) (quotaID string, err error)
-    Settle(ctx context.Context, quotaID string, actual int) error
+
+    // PreConsume 原子性预扣 token 和费用
+    // 参数：estimatedTokens 预估 token 数，estimatedCost 预估费用 (USD)
+    // 返回：quotaID 用于后续结算，内部事务保证 token + cost 同时预扣
+    PreConsume(ctx context.Context, tenantID string, estimatedTokens int, estimatedCost float64) (quotaID string, err error)
+
+    // Settle 按实际用量结算，退回差额
+    // 参数：actualTokens 实际 token 数，actualCost 实际费用 (USD)
+    // 内部事务保证 token 差额退回 + cost 差额退回的原子性
+    Settle(ctx context.Context, quotaID string, actualTokens int, actualCost float64) error
+
+    // Rollback 请求失败时退回全部预扣额度（token + cost）
     Rollback(ctx context.Context, quotaID string) error
+}
+
+// PreConsumeRecord 预扣记录，用于结算时计算差额
+type PreConsumeRecord struct {
+    QuotaID          string
+    TenantID         string
+    EstimatedTokens  int
+    EstimatedCost    float64
+    CreatedAt        time.Time
 }
 
 type TenantQuota struct {
@@ -1630,26 +1881,36 @@ type TenantQuota struct {
     MonthlySpent  float64
 }
 
-// PreConsume 按估算 token 预扣额度
+// PreConsume 按估算 token 和费用预扣额度
 // 返回 quotaID 用于后续结算
-func (q *QuotaManager) PreConsume(ctx context.Context, tenantID string, estimatedTokens int) (quotaID string, err error) {
+func (q *QuotaManager) PreConsume(ctx context.Context, tenantID string, estimatedTokens int, estimatedCost float64) (quotaID string, err error) {
     quota, err := q.store.GetQuota(ctx, tenantID)
     if err != nil {
         return "", err
     }
 
-    // 检查是否超额
+    // 检查日 token 限额
     if quota.DailyLimit > 0 && quota.DailyUsed+int64(estimatedTokens) > quota.DailyLimit {
         return "", ErrDailyQuotaExceeded
     }
 
-    // 预扣
-    return q.store.PreConsume(ctx, tenantID, estimatedTokens)
+    // 检查月费用限额
+    if quota.MonthlyLimit > 0 && quota.MonthlySpent+estimatedCost > quota.MonthlyLimit {
+        return "", ErrMonthlyQuotaExceeded
+    }
+
+    // 预扣（token + cost 原子性）
+    return q.store.PreConsume(ctx, tenantID, estimatedTokens, estimatedCost)
 }
 
-// Settle 请求完成后按实际用量结算，退回差额
-func (q *QuotaManager) Settle(ctx context.Context, quotaID string, actualTokens int) error {
-    return q.store.Settle(ctx, quotaID, actualTokens)
+var (
+    ErrDailyQuotaExceeded   = errors.New("daily token quota exceeded")
+    ErrMonthlyQuotaExceeded = errors.New("monthly spend quota exceeded")
+)
+
+// Settle 请求完成后按实际用量结算，退回差额（token + cost 原子性）
+func (q *QuotaManager) Settle(ctx context.Context, quotaID string, actualTokens int, actualCost float64) error {
+    return q.store.Settle(ctx, quotaID, actualTokens, actualCost)
 }
 
 // Rollback 请求失败时退回预扣额度
@@ -1661,13 +1922,14 @@ func (q *QuotaManager) Rollback(ctx context.Context, quotaID string) error {
 使用流程：
 
 ```go
-// Manager.Chat 中的配额处理
+// Manager.Chat 中的配额处理（简化示例，完整版见 Section 7.1 Manager.Chat）
 func (m *Manager) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
-    // 1. 估算 token
+    // 1. 估算 token 和费用
     estimatedTokens := m.tokenCounter.Estimate(req)
+    estimatedCost := m.costCalculator.Estimate(req.Model, estimatedTokens)
 
-    // 2. 预扣配额
-    quotaID, err := m.quotaManager.PreConsume(ctx, req.TenantID, estimatedTokens)
+    // 2. 预扣配额（同时检查日 token 限额和月费用限额）
+    quotaID, err := m.quotaManager.PreConsume(ctx, req.TenantID, estimatedTokens, estimatedCost)
     if err != nil {
         return nil, err
     }
@@ -1680,7 +1942,9 @@ func (m *Manager) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, er
         m.quotaManager.Rollback(ctx, quotaID)
         return nil, err
     }
-    m.quotaManager.Settle(ctx, quotaID, resp.Usage.TotalTokens)
+    // 按实际用量结算（token + cost 原子性退回差额）
+    actualCost := m.costCalculator.Calculate(req.Model, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+    m.quotaManager.Settle(ctx, quotaID, resp.Usage.TotalTokens, actualCost)
 
     return resp, nil
 }
@@ -1735,28 +1999,42 @@ type SpanAttrs struct {
 ```go
 // pkg/observability/metrics.go
 
-// --- 请求维度 ---
-// llm_gateway_requests_total{provider, model, tier, status, tenant_id}
-// llm_gateway_request_duration_seconds{provider, model, tier, quantile}  -- histogram
-// llm_gateway_ttft_seconds{provider, model, tier, quantile}              -- Time To First Token (流式)
+// ========== 全局指标（低基数，适合 Prometheus label）==========
 
-// --- Token 与成本 ---
-// llm_gateway_tokens_total{provider, model, direction="input|output", tenant_id}
-// llm_gateway_cost_usd_total{provider, model, tenant_id}
+// --- 请求维度（不含 tenant_id，避免高基数爆炸）---
+// llm_gateway_requests_total{provider, model, tier, status}
+// llm_gateway_request_duration_seconds{provider, model, tier}  -- histogram
+// llm_gateway_ttft_seconds{provider, model, tier}              -- Time To First Token (流式)
+
+// --- Token 与成本（全局聚合）---
+// llm_gateway_tokens_total{provider, model, direction="input|output"}
+// llm_gateway_cost_usd_total{provider, model}
 
 // --- 可靠性 ---
 // llm_gateway_retry_total{provider, reason}
 // llm_gateway_fallback_total{from_provider, to_provider}
 // llm_gateway_circuit_breaker_state{provider}  -- gauge: 0=closed, 1=open, 2=half_open
+// llm_gateway_cooldown_active{provider, model} -- gauge: 当前冷却中的 key 数
 // llm_gateway_stream_failures_total{provider, strategy}
 
 // --- 缓存 ---
-// llm_gateway_cache_hits_total / llm_gateway_cache_misses_total
+// llm_gateway_cache_hits_total{layer="memory|redis"} / llm_gateway_cache_misses_total
 
-// --- 租户预算 ---
-// llm_gateway_tenant_budget_remaining{tenant_id, type="token|spend"}
-// llm_gateway_tenant_rate_limit_rejected_total{tenant_id}
+// ========== 租户指标（独立上报通道，避免全局指标基数爆炸）==========
+// 租户维度的 token/成本/限流数据通过以下两种方式上报，不放入全局 Prometheus label：
+//
+// 方案 A：独立的租户指标 exporter（按租户 ID 分桶聚合后再暴露）
+//   llm_gateway_tenant_requests_total{tenant_id, status}       -- 仅在租户数可控（<100）时启用
+//   llm_gateway_tenant_tokens_total{tenant_id, direction}
+//   llm_gateway_tenant_budget_remaining{tenant_id, type}
+//   llm_gateway_tenant_rate_limit_rejected_total{tenant_id}
+//
+// 方案 B（推荐）：租户级数据写入 SpendWriter → 数据库，用 Grafana 直接查 DB
+//   不进入 Prometheus，彻底避免高基数问题
+//   Dashboard 通过 SQL/ClickHouse 查询租户维度数据
 ```
+
+> **高基数防护**：`tenant_id` 不作为全局请求指标的 label，避免租户数增长导致 Prometheus 内存和查询性能劣化。租户维度数据通过 SpendWriter 写入数据库，用 Grafana 混合数据源（Prometheus + DB）构建统一 Dashboard。
 
 #### 7.14.3 SLI / SLO 定义
 
@@ -1971,15 +2249,17 @@ func (a *GoogleAuth) Apply(req *http.Request) error {
 }
 
 // DynamicAuth 动态凭证支持（借鉴 TensorZero BYOK）
-// 如果 ChatRequest 携带 credentials["api_key"]，优先使用动态凭证
-// 否则 fallback 到静态配置
+// 实现 AuthStrategy 接口，构造时注入 credentials
+// 如果 credentials 包含 api_key，优先使用；否则 fallback 到静态配置
 type DynamicAuth struct {
-    StaticAuth AuthStrategy           // 静态配置的认证策略
+    StaticAuth  AuthStrategy      // 静态配置的认证策略
+    Credentials map[string]string // 来自 ChatRequest.Credentials
 }
 
-func (a *DynamicAuth) ApplyWithCredentials(req *http.Request, credentials map[string]string) error {
+// Apply 实现 AuthStrategy 接口
+func (a *DynamicAuth) Apply(req *http.Request) error {
     // 优先使用动态凭证
-    if apiKey, ok := credentials["api_key"]; ok && apiKey != "" {
+    if apiKey, ok := a.Credentials["api_key"]; ok && apiKey != "" {
         req.Header.Set("Authorization", "Bearer "+apiKey)
         return nil
     }
@@ -1988,9 +2268,9 @@ func (a *DynamicAuth) ApplyWithCredentials(req *http.Request, credentials map[st
 }
 
 // Provider 调用时的凭证解析
-func (p *Provider) resolveAuth(req *types.ChatRequest) AuthStrategy {
+func (p *BaseProvider) resolveAuth(req *types.ChatRequest) AuthStrategy {
     if len(req.Credentials) > 0 {
-        return &DynamicAuth{StaticAuth: p.defaultAuth}
+        return &DynamicAuth{StaticAuth: p.defaultAuth, Credentials: req.Credentials}
     }
     return p.defaultAuth
 }
@@ -2046,18 +2326,48 @@ type TenantRateLimit struct {
 
 // Authorizer 鉴权中间件
 type Authorizer struct {
-    tenants map[string]*Tenant // keyHash -> tenant
+    // prefixIndex: API Key 前缀（前 8 字符）→ 候选 Tenant 列表
+    // 查找时先用 O(1) 前缀匹配缩小范围，再对候选集做 bcrypt 比较
+    prefixIndex map[string][]*tenantKeyPair
+}
+
+type tenantKeyPair struct {
+    Tenant *Tenant
+    Key    *HashedKey
+}
+
+// buildIndex 启动时构建前缀索引
+func (a *Authorizer) buildIndex(tenants []*Tenant) {
+    a.prefixIndex = make(map[string][]*tenantKeyPair)
+    for _, t := range tenants {
+        for i := range t.APIKeys {
+            k := &t.APIKeys[i]
+            a.prefixIndex[k.Prefix] = append(a.prefixIndex[k.Prefix], &tenantKeyPair{
+                Tenant: t, Key: k,
+            })
+        }
+    }
 }
 
 // Authenticate 从请求中提取 API Key，验证身份
+// 性能优化：先用前缀索引 O(1) 定位候选，再做 bcrypt 比较，避免全量遍历
 func (a *Authorizer) Authenticate(apiKey string) (*Tenant, error) {
-    for _, t := range a.tenants {
-        for _, k := range t.APIKeys {
-            if k.ExpireAt.IsZero() || k.ExpireAt.After(time.Now()) {
-                if bcrypt.CompareHashAndPassword([]byte(k.Hash), []byte(apiKey)) == nil {
-                    return t, nil
-                }
-            }
+    if len(apiKey) < 8 {
+        return nil, ErrUnauthorized
+    }
+
+    prefix := apiKey[:8]
+    candidates, ok := a.prefixIndex[prefix]
+    if !ok {
+        return nil, ErrUnauthorized
+    }
+
+    for _, pair := range candidates {
+        if !pair.Key.ExpireAt.IsZero() && pair.Key.ExpireAt.Before(time.Now()) {
+            continue // 已过期
+        }
+        if bcrypt.CompareHashAndPassword([]byte(pair.Key.Hash), []byte(apiKey)) == nil {
+            return pair.Tenant, nil
         }
     }
     return nil, ErrUnauthorized
@@ -2190,8 +2500,8 @@ security:
   # 租户配置
   tenants_file: "config/tenants.yaml"
 
-  # 密钥管理
-  secret_provider: "env"
+  # 密钥管理：引用 secret 顶级配置（见 Section 10.3）
+  # 此处不再重复定义，统一使用 secret.provider
 
   # 日志脱敏
   sanitize:
@@ -2326,10 +2636,13 @@ tier_routing:
 manager:
   cache:
     enabled: true
-    backend: "memory"   # memory / redis
-    ttl: "5m"
-    max_size: 1000
-    redis_url: "${REDIS_URL}"
+    memory:
+      max_size: 1000     # LRU 容量
+      ttl: "5m"          # 内存缓存 TTL
+    redis:
+      enabled: false     # 可选，启用后为 DualCache 模式
+      url: "${REDIS_URL}"
+      ttl: "1h"          # Redis 缓存 TTL
 
   circuit_breaker:
     failure_threshold: 5
@@ -2340,6 +2653,51 @@ manager:
     delay: "500ms"
 
   token_safety_margin: 256
+
+  # 重试策略（NEW）
+  retry:
+    max_attempts: 3              # 最大重试次数（含首次）
+    initial_delay: "100ms"       # 初始退避间隔
+    max_delay: "5s"              # 最大退避间隔
+    backoff_factor: 2.0          # 退避倍数
+    retry_budget: 0.1            # 重试预算：重试请求占总请求的比例上限
+    deadline: "30s"              # 全局时间预算（所有重试共享）
+    budget_window: "60s"         # 重试预算滑动窗口
+
+  # Per-Model 冷却（NEW）
+  cooldown:
+    enabled: true
+    backoff_sequence: ["10s", "30s", "60s", "120s", "300s"]  # 退避序列
+    max_failures: 5              # 触发冷却的连续失败次数
+
+  # 配额管理（NEW）
+  quota:
+    enabled: true
+    store: "database"            # database / redis / memory
+    preconsumed_ttl: "10m"       # 预扣记录 TTL（超时自动退回）
+
+  # 异步消费写入（NEW）
+  spend_writer:
+    enabled: true
+    batch_size: 100              # 批量写入阈值
+    flush_interval: "5s"         # 定时刷新间隔
+    queue_size: 10000            # 队列容量
+    wal_path: "/var/lib/llm-gateway/spend.wal"  # WAL 文件路径
+
+  # 费用计算（NEW）
+  cost_calculator:
+    pricing_file: "config/pricing.yaml"  # 模型定价配置
+    fallback_price:              # 未知模型兜底价格
+      input_per_1k: 0.001
+      output_per_1k: 0.002
+
+  # 超时配置
+  timeout:
+    connect: "5s"
+    first_token: "30s"           # 首 token 超时
+    total_non_stream: "120s"     # 非流式总超时
+    total_stream: "300s"         # 流式总超时
+    idle_between_chunks: "30s"   # 流式块间隔超时
 ```
 
 ---
@@ -2400,18 +2758,34 @@ func New(cfgPath string, opts ...Option) (*Client, error) {
         return nil, fmt.Errorf("load config: %w", err)
     }
 
-    c := &Client{
-        hookRegistry: hook.NewRegistry(),
-        config:       applyOptions(cfg, opts),
+    // 1. 解析选项
+    options := defaultOptions()
+    for _, opt := range opts {
+        opt(&options)
     }
 
-    // 初始化 Manager（核心编排层）
-    c.manager, err = manager.New(cfg, c.hookRegistry)
+    // 2. 应用选项到配置（覆盖 YAML 中的值）
+    if options.logger != nil {
+        slog.SetDefault(options.logger)
+    }
+    cfg.Manager.Cache.Enabled = options.cacheEnabled
+
+    // 3. 初始化 Hook Registry，注册用户指定的 Hook
+    hookReg := hook.NewRegistry()
+    for _, h := range options.hooks {
+        hookReg.Register(h)
+    }
+
+    // 4. 初始化 Manager（将选项生效后的 cfg 和 hookReg 传入）
+    mgr, err := manager.New(cfg, hookReg)
     if err != nil {
         return nil, fmt.Errorf("init manager: %w", err)
     }
 
-    return c, nil
+    return &Client{
+        manager:      mgr,
+        hookRegistry: hookReg,
+    }, nil
 }
 
 // Chat 对话（非流式）
@@ -2439,6 +2813,12 @@ func (c *Client) Close() error {
 // pkg/gateway/options.go — 函数式选项
 
 type Option func(*clientOptions)
+
+func defaultOptions() clientOptions {
+    return clientOptions{
+        cacheEnabled: true,  // 默认启用缓存
+    }
+}
 
 type clientOptions struct {
     cacheEnabled bool
