@@ -22,29 +22,37 @@ func NewRouter(registry *provider.Registry, cfg *config.Config) *Router {
 
 // SelectChat selects a ChatProvider and model for the given request.
 // Returns the provider, the model ID to use, and any error.
+//
+// Priority order (per design §7.2):
+//  1. Provider explicitly specified → use that provider
+//  2. Model explicitly specified → reverse-lookup provider
+//  3. Tier routing (default TierMedium if not specified)
 func (r *Router) SelectChat(req *types.ChatRequest) (provider.ChatProvider, string, error) {
-	// Priority 1: If specific model is requested, find its provider
+	// Priority 1: Explicit provider
+	if req.Provider != "" {
+		if req.Model != "" {
+			// Provider + Model: verify model belongs to provider, then use it
+			return r.selectByModel(req.Model)
+		}
+		if req.ModelTier != "" {
+			// Provider + Tier: find matching tier model from provider
+			return r.selectByProviderAndTier(req.Provider, req.ModelTier)
+		}
+		// Provider only: use its default (first) model
+		return r.selectByProvider(req.Provider)
+	}
+
+	// Priority 2: Explicit model → reverse-lookup provider
 	if req.Model != "" {
 		return r.selectByModel(req.Model)
 	}
 
-	// Priority 2: If specific provider is requested with tier
-	if req.Provider != "" && req.ModelTier != "" {
-		return r.selectByProviderAndTier(req.Provider, req.ModelTier)
+	// Priority 3: Tier routing (default to TierMedium)
+	tier := req.ModelTier
+	if tier == "" {
+		tier = types.TierMedium
 	}
-
-	// Priority 3: If only provider is requested, use its default model
-	if req.Provider != "" {
-		return r.selectByProvider(req.Provider)
-	}
-
-	// Priority 4: If only tier is requested, use tier routing
-	if req.ModelTier != "" {
-		return r.selectByTier(req.ModelTier)
-	}
-
-	// Default: Use large tier
-	return r.selectByTier(types.TierLarge)
+	return r.selectByTier(tier)
 }
 
 // selectByModel finds the provider for a specific model.
@@ -52,8 +60,9 @@ func (r *Router) selectByModel(modelID string) (provider.ChatProvider, string, e
 	cp, ok := r.registry.GetChatProviderByModel(modelID)
 	if !ok {
 		return nil, "", &types.ProviderError{
-			Code:    types.ErrModelNotFound,
-			Message: "model not found: " + modelID,
+			Code:       types.ErrModelNotFound,
+			Message:    "model not found: " + modelID,
+			StatusCode: 404,
 		}
 	}
 	return cp, modelID, nil
@@ -64,8 +73,9 @@ func (r *Router) selectByProvider(providerName string) (provider.ChatProvider, s
 	cp, ok := r.registry.GetChatProvider(providerName)
 	if !ok {
 		return nil, "", &types.ProviderError{
-			Code:    types.ErrProviderError,
-			Message: "provider not found: " + providerName,
+			Code:       types.ErrProviderNotFound,
+			Message:    "provider not found: " + providerName,
+			StatusCode: 404,
 		}
 	}
 
@@ -73,8 +83,9 @@ func (r *Router) selectByProvider(providerName string) (provider.ChatProvider, s
 	models := cp.Models()
 	if len(models) == 0 {
 		return nil, "", &types.ProviderError{
-			Code:    types.ErrModelNotFound,
-			Message: "no models available for provider: " + providerName,
+			Code:       types.ErrModelNotFound,
+			Message:    "no models available for provider: " + providerName,
+			StatusCode: 404,
 		}
 	}
 
@@ -86,8 +97,9 @@ func (r *Router) selectByProviderAndTier(providerName string, tier types.ModelTi
 	cp, ok := r.registry.GetChatProvider(providerName)
 	if !ok {
 		return nil, "", &types.ProviderError{
-			Code:    types.ErrProviderError,
-			Message: "provider not found: " + providerName,
+			Code:       types.ErrProviderNotFound,
+			Message:    "provider not found: " + providerName,
+			StatusCode: 404,
 		}
 	}
 
@@ -102,8 +114,9 @@ func (r *Router) selectByProviderAndTier(providerName string, tier types.ModelTi
 	models := cp.Models()
 	if len(models) == 0 {
 		return nil, "", &types.ProviderError{
-			Code:    types.ErrModelNotFound,
-			Message: "no models available for provider: " + providerName,
+			Code:       types.ErrModelNotFound,
+			Message:    "no models available for provider: " + providerName,
+			StatusCode: 404,
 		}
 	}
 
@@ -115,8 +128,9 @@ func (r *Router) selectByTier(tier types.ModelTier) (provider.ChatProvider, stri
 	entries := r.registry.GetForTier(tier)
 	if len(entries) == 0 {
 		return nil, "", &types.ProviderError{
-			Code:    types.ErrModelNotFound,
-			Message: "no models configured for tier: " + string(tier),
+			Code:       types.ErrModelNotFound,
+			Message:    "no models configured for tier: " + string(tier),
+			StatusCode: 404,
 		}
 	}
 
@@ -129,7 +143,8 @@ func (r *Router) selectByTier(tier types.ModelTier) (provider.ChatProvider, stri
 	}
 
 	return nil, "", &types.ProviderError{
-		Code:    types.ErrProviderError,
-		Message: "no available providers for tier: " + string(tier),
+		Code:       types.ErrProviderNotFound,
+		Message:    "no available providers for tier: " + string(tier),
+		StatusCode: 404,
 	}
 }

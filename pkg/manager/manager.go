@@ -4,6 +4,8 @@ package manager
 import (
 	"context"
 	"fmt"
+	"log"
+	"sort"
 
 	"github.com/lex1ng/llm-gateway/config"
 	"github.com/lex1ng/llm-gateway/pkg/adapter/openai"
@@ -55,7 +57,7 @@ func registerProviders(cfg *config.Config, registry *provider.Registry) error {
 			p, err = openai.New(provCfg, models)
 		// TODO: Add other providers (anthropic, google, compatible)
 		default:
-			// Skip unconfigured providers
+			log.Printf("[WARN] provider %q is configured but has no adapter implementation, skipping", name)
 			continue
 		}
 
@@ -100,6 +102,7 @@ func convertModelCatalogEntry(entry config.ModelCatalogEntry) types.ModelConfig 
 }
 
 // buildTierRouting converts config tier routing to registry format.
+// Entries within each tier are sorted by Priority (ascending = higher priority).
 func buildTierRouting(cfgRouting map[string][]config.RouteEntry) map[types.ModelTier][]provider.TierEntry {
 	result := make(map[types.ModelTier][]provider.TierEntry)
 	for tierStr, entries := range cfgRouting {
@@ -111,6 +114,10 @@ func buildTierRouting(cfgRouting map[string][]config.RouteEntry) map[types.Model
 				Priority:     entry.Priority,
 			})
 		}
+		// Sort by priority (lower number = higher priority)
+		sort.Slice(result[tier], func(i, j int) bool {
+			return result[tier][i].Priority < result[tier][j].Priority
+		})
 	}
 	return result
 }

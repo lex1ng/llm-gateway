@@ -27,25 +27,44 @@ func (p *Provider) ChatStream(ctx context.Context, req *types.ChatRequest) (<-ch
 
 	// Create channel and start reading goroutine
 	events := make(chan types.StreamEvent, 16)
-	go p.readStreamEvents(body, events)
+	go p.readStreamEvents(ctx, body, events)
 
 	return events, nil
 }
 
+// sendEvent sends a stream event to the channel, respecting context cancellation.
+// Returns false if the context was cancelled and the goroutine should exit.
+func sendEvent(ctx context.Context, events chan<- types.StreamEvent, event types.StreamEvent) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case events <- event:
+		return true
+	}
+}
+
 // readStreamEvents reads SSE events from the response body and sends them to the channel.
-func (p *Provider) readStreamEvents(body io.ReadCloser, events chan<- types.StreamEvent) {
+// It respects ctx.Done() to avoid goroutine leaks when the caller cancels.
+func (p *Provider) readStreamEvents(ctx context.Context, body io.ReadCloser, events chan<- types.StreamEvent) {
 	defer close(events)
 	defer body.Close()
 
 	reader := transport.NewSSEReader(body)
 
 	for {
+		// Check context before reading
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		sse, err := reader.Read()
 		if err != nil {
 			if err == io.EOF {
 				return
 			}
-			events <- types.NewErrorEvent(err.Error())
+			sendEvent(ctx, events, types.NewErrorEvent(err.Error()))
 			return
 		}
 
@@ -62,7 +81,9 @@ func (p *Provider) readStreamEvents(body io.ReadCloser, events chan<- types.Stre
 		// Parse the streaming chunk
 		var chunk openAIStreamChunk
 		if err := json.Unmarshal([]byte(sse.Data), &chunk); err != nil {
-			events <- types.NewErrorEvent("parse error: " + err.Error())
+			if !sendEvent(ctx, events, types.NewErrorEvent("parse error: "+err.Error())) {
+				return
+			}
 			continue
 		}
 
@@ -70,20 +91,24 @@ func (p *Provider) readStreamEvents(body io.ReadCloser, events chan<- types.Stre
 		for _, choice := range chunk.Choices {
 			// Content delta
 			if choice.Delta.Content != "" {
-				events <- types.NewContentDeltaEvent(choice.Delta.Content)
+				if !sendEvent(ctx, events, types.NewContentDeltaEvent(choice.Delta.Content)) {
+					return
+				}
 			}
 
 			// Tool call delta
 			if len(choice.Delta.ToolCalls) > 0 {
 				for _, tc := range choice.Delta.ToolCalls {
-					events <- types.NewToolCallDeltaEvent(&types.ToolCall{
+					if !sendEvent(ctx, events, types.NewToolCallDeltaEvent(&types.ToolCall{
 						ID:   tc.ID,
 						Type: tc.Type,
 						Function: types.FunctionCall{
 							Name:      tc.Function.Name,
 							Arguments: tc.Function.Arguments,
 						},
-					})
+					})) {
+						return
+					}
 				}
 			}
 
@@ -97,17 +122,21 @@ func (p *Provider) readStreamEvents(body io.ReadCloser, events chan<- types.Stre
 						TotalTokens:      chunk.Usage.TotalTokens,
 					}
 				}
-				events <- types.NewDoneEvent(choice.FinishReason, usage)
+				if !sendEvent(ctx, events, types.NewDoneEvent(choice.FinishReason, usage)) {
+					return
+				}
 			}
 		}
 
 		// Usage event (sent separately in newer API versions)
 		if chunk.Usage.TotalTokens > 0 && len(chunk.Choices) == 0 {
-			events <- types.NewUsageEvent(types.TokenUsage{
+			if !sendEvent(ctx, events, types.NewUsageEvent(types.TokenUsage{
 				PromptTokens:     chunk.Usage.PromptTokens,
 				CompletionTokens: chunk.Usage.CompletionTokens,
 				TotalTokens:      chunk.Usage.TotalTokens,
-			})
+			})) {
+				return
+			}
 		}
 	}
 }

@@ -4,6 +4,7 @@ package types
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -69,6 +70,13 @@ func (c Content) MarshalJSON() ([]byte, error) {
 // - If JSON is string, sets Text field
 // - If JSON is array, sets Blocks field
 func (c *Content) UnmarshalJSON(data []byte) error {
+	// Handle null
+	if string(data) == "null" {
+		c.Text = ""
+		c.Blocks = nil
+		return nil
+	}
+
 	// Try string first
 	var text string
 	if err := json.Unmarshal(data, &text); err == nil {
@@ -85,10 +93,8 @@ func (c *Content) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	// If both fail, treat as empty string
-	c.Text = ""
-	c.Blocks = nil
-	return nil
+	// If both fail, reject the input
+	return fmt.Errorf("content must be a string or array of content blocks, got: %.50s", data)
 }
 
 // NewTextContent creates a Content with plain text.

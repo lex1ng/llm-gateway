@@ -73,6 +73,10 @@ func setupTestManager(t *testing.T) *Manager {
 		types.TierSmall: {
 			{ProviderName: "openai", ModelID: "gpt-4o-mini", Priority: 1},
 		},
+		types.TierMedium: {
+			{ProviderName: "openai", ModelID: "gpt-4o-mini", Priority: 1},
+			{ProviderName: "anthropic", ModelID: "claude-sonnet-4-20250514", Priority: 2},
+		},
 		types.TierLarge: {
 			{ProviderName: "openai", ModelID: "gpt-4o", Priority: 1},
 			{ProviderName: "anthropic", ModelID: "claude-sonnet-4-20250514", Priority: 2},
@@ -157,8 +161,8 @@ func TestManager_Chat_ProviderNotFound(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *types.ProviderError, got %T", err)
 	}
-	if pe.Code != types.ErrProviderError {
-		t.Errorf("expected error code ErrProviderError, got %q", pe.Code)
+	if pe.Code != types.ErrProviderNotFound {
+		t.Errorf("expected error code ErrProviderNotFound, got %q", pe.Code)
 	}
 }
 
@@ -224,17 +228,17 @@ func TestRouter_SelectByProviderAndTier(t *testing.T) {
 	}
 }
 
-func TestRouter_DefaultToLargeTier(t *testing.T) {
+func TestRouter_DefaultToMediumTier(t *testing.T) {
 	m := setupTestManager(t)
 
-	// No model, no provider, no tier → default to large
+	// No model, no provider, no tier → default to medium (per design §7.2)
 	resp, err := m.Chat(context.Background(), &types.ChatRequest{})
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
 	}
 
-	if resp.Model != "gpt-4o" {
-		t.Errorf("expected default to large tier (gpt-4o), got %q", resp.Model)
+	if resp.Model != "gpt-4o-mini" {
+		t.Errorf("expected default to medium tier (gpt-4o-mini), got %q", resp.Model)
 	}
 }
 

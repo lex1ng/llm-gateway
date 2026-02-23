@@ -59,11 +59,24 @@ func (r *Registry) Register(p Provider) error {
 
 	// Auto-detect capabilities via reflection
 	detectedCaps := detectCapabilities(p)
+	detectedSet := make(map[Capability]bool, len(detectedCaps))
+	for _, cap := range detectedCaps {
+		detectedSet[cap] = true
+	}
 
-	// Validate consistency: if interface is implemented, Supports() should return true
+	// Validate consistency (bidirectional):
+	// Direction 1: if interface is implemented, Supports() must return true
 	for _, cap := range detectedCaps {
 		if !p.Supports(cap) {
 			return fmt.Errorf("provider %q implements %s interface but Supports(%s) returns false",
+				name, cap, cap)
+		}
+	}
+
+	// Direction 2: if Supports() returns true for an interface-level cap, must implement the interface
+	for _, cap := range InterfaceCapabilities() {
+		if p.Supports(cap) && !detectedSet[cap] {
+			return fmt.Errorf("provider %q declares Supports(%s)=true but does not implement the %s interface",
 				name, cap, cap)
 		}
 	}
