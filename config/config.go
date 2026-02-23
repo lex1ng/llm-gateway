@@ -3,7 +3,9 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -233,6 +235,7 @@ type MetricsConfig struct {
 }
 
 // Load loads configuration from a YAML file.
+// It also loads the models catalog file (models.yaml) from the same directory.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -247,6 +250,14 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	// Load models catalog from the same directory as the config file
+	if err := loadModelsCatalog(path, &cfg); err != nil {
+		return nil, err
+	}
+
+	// Remove providers with empty API keys and prune related models/routes
+	pruneUnavailableProviders(&cfg)
+
 	// Apply defaults
 	applyDefaults(&cfg)
 
@@ -256,6 +267,87 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// modelsFile is a helper struct for unmarshaling models.yaml.
+type modelsFile struct {
+	ModelCatalog []ModelCatalogEntry       `yaml:"model_catalog"`
+	TierRouting  map[string][]RouteEntry   `yaml:"tier_routing"`
+}
+
+// loadModelsCatalog loads model_catalog and tier_routing from models.yaml
+// located in the same directory as the main config file.
+// If models.yaml doesn't exist, it's silently skipped (models may be inline in config.yaml).
+func loadModelsCatalog(configPath string, cfg *Config) error {
+	// If config already has models defined inline, skip
+	if len(cfg.ModelCatalog) > 0 {
+		return nil
+	}
+
+	modelsPath := filepath.Join(filepath.Dir(configPath), "models.yaml")
+	data, err := os.ReadFile(modelsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // models.yaml is optional
+		}
+		return fmt.Errorf("read models file: %w", err)
+	}
+
+	var mf modelsFile
+	if err := yaml.Unmarshal(data, &mf); err != nil {
+		return fmt.Errorf("parse models file: %w", err)
+	}
+
+	cfg.ModelCatalog = mf.ModelCatalog
+	if len(cfg.TierRouting) == 0 {
+		cfg.TierRouting = mf.TierRouting
+	}
+
+	return nil
+}
+
+// pruneUnavailableProviders removes providers with empty API keys,
+// and filters out related model_catalog entries and tier_routing entries.
+// This allows keeping all providers in config.yaml while only activating
+// those with real API keys set.
+func pruneUnavailableProviders(cfg *Config) {
+	// Collect providers with empty API keys and remove them
+	removed := make(map[string]bool)
+	for name, prov := range cfg.Providers {
+		if prov.APIKey == "" {
+			removed[name] = true
+			delete(cfg.Providers, name)
+			log.Printf("[INFO] provider %q skipped: no api_key configured", name)
+		}
+	}
+
+	if len(removed) == 0 {
+		return
+	}
+
+	// Filter model catalog
+	filtered := cfg.ModelCatalog[:0]
+	for _, m := range cfg.ModelCatalog {
+		if !removed[m.Provider] {
+			filtered = append(filtered, m)
+		}
+	}
+	cfg.ModelCatalog = filtered
+
+	// Filter tier routing
+	for tier, entries := range cfg.TierRouting {
+		var kept []RouteEntry
+		for _, e := range entries {
+			if !removed[e.Provider] {
+				kept = append(kept, e)
+			}
+		}
+		if len(kept) == 0 {
+			delete(cfg.TierRouting, tier)
+		} else {
+			cfg.TierRouting[tier] = kept
+		}
+	}
 }
 
 // LoadFromBytes loads configuration from YAML bytes.

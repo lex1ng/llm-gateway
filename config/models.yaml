@@ -45,23 +45,24 @@ model_catalog:
       json_mode: true
       streaming: true
 
-  - id: "text-embedding-3-small"
-    provider: "openai"
-    tier: "small"
-    context_window: 8191
-    input_price: 0.00002
-    output_price: 0
-    capabilities:
-      embedding: true
+  # TODO: Enable after embedding adapter is implemented (Sprint 6)
+  # - id: "text-embedding-3-small"
+  #   provider: "openai"
+  #   tier: "small"
+  #   context_window: 8191
+  #   input_price: 0.00002
+  #   output_price: 0
+  #   capabilities:
+  #     embedding: true
 
-  - id: "text-embedding-3-large"
-    provider: "openai"
-    tier: "large"
-    context_window: 8191
-    input_price: 0.00013
-    output_price: 0
-    capabilities:
-      embedding: true
+  # - id: "text-embedding-3-large"
+  #   provider: "openai"
+  #   tier: "large"
+  #   context_window: 8191
+  #   input_price: 0.00013
+  #   output_price: 0
+  #   capabilities:
+  #     embedding: true
 
   # ========== Anthropic Models ==========
   - id: "claude-sonnet-4-5-20250929"
