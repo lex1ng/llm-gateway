@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/lex1ng/llm-gateway/api"
 	"github.com/lex1ng/llm-gateway/config"
 	"github.com/lex1ng/llm-gateway/pkg/gateway"
@@ -19,6 +20,7 @@ import (
 
 var (
 	configPath = flag.String("config", "config/config.yaml", "Path to configuration file")
+	envPath    = flag.String("env", "", "Path to .env file (optional, auto-detected if not set)")
 	version    = "dev"
 )
 
@@ -32,6 +34,15 @@ func main() {
 	slog.SetDefault(logger)
 
 	logger.Info("starting llm-gateway", "version", version)
+
+	// Load .env file (does NOT override existing env vars)
+	if *envPath != "" {
+		if err := godotenv.Load(*envPath); err != nil {
+			logger.Warn("failed to load specified .env file", "path", *envPath, "error", err)
+		}
+	} else {
+		_ = godotenv.Load() // silently ignore if .env not found
+	}
 
 	// Load configuration
 	cfg, err := config.Load(*configPath)
