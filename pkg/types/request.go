@@ -12,9 +12,12 @@ type ChatRequest struct {
 	Stream      bool      `json:"stream,omitempty"`      // Enable streaming response
 	Stop        []string  `json:"stop,omitempty"`        // Stop sequences
 
+	// --- Reasoning Models (o1, o3, gpt-5, etc.) ---
+	ReasoningEffort string `json:"reasoning_effort,omitempty"` // "none", "minimal", "low", "medium", "high"
+
 	// --- Tool Calling ---
-	Tools      []Tool      `json:"tools,omitempty"`       // Available tools/functions
-	ToolChoice any `json:"tool_choice,omitempty"` // "auto", "none", or specific tool
+	Tools      []Tool `json:"tools,omitempty"`       // Available tools/functions
+	ToolChoice any    `json:"tool_choice,omitempty"` // "auto", "none", or specific tool
 
 	// --- Routing Control ---
 	Provider  string    `json:"provider,omitempty"`   // Force specific provider (overrides routing)

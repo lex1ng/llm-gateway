@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/lex1ng/llm-gateway/pkg/transport"
@@ -10,7 +11,7 @@ import (
 )
 
 // Chat sends a non-streaming chat completion request to OpenAI.
-func (p *Provider) Chat(ctx context.Context, req *types.ChatRequest) (*types.ChatResponse, error) {
+func (p *OpenAI) Chat(ctx context.Context, req *types.ChatRequest) (*types.ChatResponse, error) {
 	startTime := time.Now()
 
 	// Build OpenAI request body
@@ -36,7 +37,7 @@ func (p *Provider) Chat(ctx context.Context, req *types.ChatRequest) (*types.Cha
 }
 
 // getAuth returns the appropriate auth strategy, with dynamic credentials taking priority.
-func (p *Provider) getAuth(credentials map[string]string) transport.AuthStrategy {
+func (p *OpenAI) getAuth(credentials map[string]string) transport.AuthStrategy {
 	if len(credentials) > 0 {
 		return transport.WithDynamicCredentials(p.auth, credentials)
 	}
@@ -45,15 +46,24 @@ func (p *Provider) getAuth(credentials map[string]string) transport.AuthStrategy
 
 // buildChatRequest converts types.ChatRequest to OpenAI-specific format.
 // Since our internal format is OpenAI-compatible, this is mostly a pass-through.
-func (p *Provider) buildChatRequest(req *types.ChatRequest) *openAIChatRequest {
+func (p *OpenAI) buildChatRequest(req *types.ChatRequest) *openAIChatRequest {
 	openAIReq := &openAIChatRequest{
-		Model:       req.Model,
-		Messages:    convertMessages(req.Messages),
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		Stream:      req.Stream,
-		Stop:        req.Stop,
+		Model:           req.Model,
+		Messages:        convertMessages(req.Messages),
+		Temperature:     req.Temperature,
+		TopP:            req.TopP,
+		Stream:          req.Stream,
+		Stop:            req.Stop,
+		ReasoningEffort: req.ReasoningEffort,
+	}
+
+	// Use max_completion_tokens for newer models, max_tokens for older ones
+	if req.MaxTokens != nil {
+		if usesMaxCompletionTokens(req.Model) {
+			openAIReq.MaxCompletionTokens = req.MaxTokens
+		} else {
+			openAIReq.MaxTokens = req.MaxTokens
+		}
 	}
 
 	// Convert tools
@@ -72,8 +82,29 @@ func (p *Provider) buildChatRequest(req *types.ChatRequest) *openAIChatRequest {
 	return openAIReq
 }
 
+// usesMaxCompletionTokens returns true for models that require max_completion_tokens
+// instead of max_tokens (newer OpenAI models: o1, o3, o4, gpt-5, etc.)
+func usesMaxCompletionTokens(model string) bool {
+	model = strings.ToLower(model)
+	// Reasoning models (o1, o3, o4 series)
+	if strings.HasPrefix(model, "o1") ||
+		strings.HasPrefix(model, "o3") ||
+		strings.HasPrefix(model, "o4") {
+		return true
+	}
+	// GPT-5 series
+	if strings.HasPrefix(model, "gpt-5") {
+		return true
+	}
+	// GPT-4.1+ series (gpt-4.1, gpt-4.2, etc.)
+	if strings.HasPrefix(model, "gpt-4.") {
+		return true
+	}
+	return false
+}
+
 // buildChatResponse converts OpenAI response to unified format.
-func (p *Provider) buildChatResponse(resp *openAIChatResponse) *types.ChatResponse {
+func (p *OpenAI) buildChatResponse(resp *openAIChatResponse) *types.ChatResponse {
 	result := &types.ChatResponse{
 		ID:        resp.ID,
 		Model:     resp.Model,
@@ -116,16 +147,18 @@ func (p *Provider) buildChatResponse(resp *openAIChatResponse) *types.ChatRespon
 // --- OpenAI API Types ---
 
 type openAIChatRequest struct {
-	Model          string                 `json:"model"`
-	Messages       []openAIMessage        `json:"messages"`
-	MaxTokens      *int                   `json:"max_tokens,omitempty"`
-	Temperature    *float64               `json:"temperature,omitempty"`
-	TopP           *float64               `json:"top_p,omitempty"`
-	Stream         bool                   `json:"stream,omitempty"`
-	Stop           []string               `json:"stop,omitempty"`
-	Tools          []openAITool           `json:"tools,omitempty"`
-	ToolChoice     any                    `json:"tool_choice,omitempty"`
-	ResponseFormat *openAIResponseFormat  `json:"response_format,omitempty"`
+	Model               string                 `json:"model"`
+	Messages            []openAIMessage        `json:"messages"`
+	MaxTokens           *int                   `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int                   `json:"max_completion_tokens,omitempty"` // For newer models (o1, o3, gpt-5, etc.)
+	Temperature         *float64               `json:"temperature,omitempty"`
+	TopP                *float64               `json:"top_p,omitempty"`
+	Stream              bool                   `json:"stream,omitempty"`
+	Stop                []string               `json:"stop,omitempty"`
+	Tools               []openAITool           `json:"tools,omitempty"`
+	ToolChoice          any                    `json:"tool_choice,omitempty"`
+	ResponseFormat      *openAIResponseFormat  `json:"response_format,omitempty"`
+	ReasoningEffort     string                 `json:"reasoning_effort,omitempty"` // "none", "minimal", "low", "medium", "high"
 }
 
 type openAIMessage struct {
