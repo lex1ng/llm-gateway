@@ -56,16 +56,36 @@ func (r *Router) SelectChat(req *types.ChatRequest) (provider.ChatProvider, stri
 }
 
 // selectByModel finds the provider for a specific model.
+// First tries the model catalog, then falls back to prefix-based passthrough.
 func (r *Router) selectByModel(modelID string) (provider.ChatProvider, string, error) {
+	// 1. Try catalog lookup (registered models with full metadata)
 	cp, ok := r.registry.GetChatProviderByModel(modelID)
-	if !ok {
+	if ok {
+		return cp, modelID, nil
+	}
+
+	// 2. Fallback: prefix-based passthrough routing
+	providerName := matchProviderByPrefix(modelID)
+	if providerName != "" {
+		cp, ok := r.registry.GetChatProvider(providerName)
+		if ok {
+			// Passthrough: forward the model name as-is to upstream provider
+			return cp, modelID, nil
+		}
+		// Provider matched by prefix but not registered (no API key or no adapter)
 		return nil, "", &types.ProviderError{
-			Code:       types.ErrModelNotFound,
-			Message:    "model not found: " + modelID,
+			Code:       types.ErrProviderNotFound,
+			Message:    "provider not available: " + providerName + " (model: " + modelID + ")",
 			StatusCode: 404,
 		}
 	}
-	return cp, modelID, nil
+
+	// No match in catalog or prefix rules
+	return nil, "", &types.ProviderError{
+		Code:       types.ErrModelNotFound,
+		Message:    "model not found: " + modelID,
+		StatusCode: 404,
+	}
 }
 
 // selectByProvider selects the first available model from a provider.
