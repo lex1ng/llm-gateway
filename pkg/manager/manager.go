@@ -40,6 +40,11 @@ func New(cfg *config.Config) (*Manager, error) {
 	}, nil
 }
 
+// Pinger is an optional interface for providers that support connectivity checks.
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
 // registerProviders creates and registers all configured providers.
 func registerProviders(cfg *config.Config, registry *provider.Registry) error {
 	// Get models grouped by provider
@@ -63,6 +68,15 @@ func registerProviders(cfg *config.Config, registry *provider.Registry) error {
 
 		if err != nil {
 			return fmt.Errorf("create provider %s: %w", name, err)
+		}
+
+		// Connectivity check: verify the provider is reachable
+		if pinger, ok := p.(Pinger); ok {
+			if err := pinger.Ping(context.Background()); err != nil {
+				log.Printf("[WARN] provider %q connectivity check failed: %v (registering anyway)", name, err)
+			} else {
+				log.Printf("[INFO] provider %q connectivity verified", name)
+			}
 		}
 
 		if err := registry.Register(p); err != nil {
