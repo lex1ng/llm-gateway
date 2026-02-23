@@ -11,7 +11,7 @@ import (
 )
 
 // ChatStream sends a streaming chat completion request to OpenAI.
-func (p *Provider) ChatStream(ctx context.Context, req *types.ChatRequest) (<-chan types.StreamEvent, error) {
+func (p *OpenAI) ChatStream(ctx context.Context, req *types.ChatRequest) (<-chan types.StreamEvent, error) {
 	// Build OpenAI request body
 	openAIReq := p.buildChatRequest(req)
 	openAIReq.Stream = true
@@ -45,7 +45,7 @@ func sendEvent(ctx context.Context, events chan<- types.StreamEvent, event types
 
 // readStreamEvents reads SSE events from the response body and sends them to the channel.
 // It respects ctx.Done() to avoid goroutine leaks when the caller cancels.
-func (p *Provider) readStreamEvents(ctx context.Context, body io.ReadCloser, events chan<- types.StreamEvent) {
+func (p *OpenAI) readStreamEvents(ctx context.Context, body io.ReadCloser, events chan<- types.StreamEvent) {
 	defer close(events)
 	defer body.Close()
 

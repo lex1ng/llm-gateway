@@ -13,7 +13,7 @@ import (
 )
 
 // newTestProvider creates a Provider pointing at a local test server.
-func newTestProvider(serverURL string) *Provider {
+func newTestProvider(serverURL string) *OpenAI {
 	cfg := config.ProviderConfig{
 		BaseURL: serverURL,
 		APIKey:  "sk-test",

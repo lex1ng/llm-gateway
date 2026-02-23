@@ -2,6 +2,10 @@
 package openai
 
 import (
+	"context"
+	"net/http"
+	"time"
+
 	"github.com/lex1ng/llm-gateway/config"
 	"github.com/lex1ng/llm-gateway/pkg/provider"
 	"github.com/lex1ng/llm-gateway/pkg/transport"
@@ -13,9 +17,9 @@ const (
 	providerName   = "openai"
 )
 
-// Provider implements the OpenAI API adapter.
+// OpenAI implements the OpenAI API adapter.
 // Since our internal format is OpenAI-compatible, most requests are nearly pass-through.
-type Provider struct {
+type OpenAI struct {
 	client  *transport.HTTPClient
 	auth    transport.AuthStrategy
 	baseURL string
@@ -23,13 +27,13 @@ type Provider struct {
 }
 
 // New creates a new OpenAI provider.
-func New(cfg config.ProviderConfig, models []types.ModelConfig) (*Provider, error) {
+func New(cfg config.ProviderConfig, models []types.ModelConfig) (*OpenAI, error) {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 
-	return &Provider{
+	return &OpenAI{
 		client:  transport.DefaultHTTPClient(),
 		auth:    transport.NewAuthStrategy(providerName, cfg.APIKey),
 		baseURL: baseURL,
@@ -38,17 +42,17 @@ func New(cfg config.ProviderConfig, models []types.ModelConfig) (*Provider, erro
 }
 
 // Name returns the provider name.
-func (p *Provider) Name() string {
+func (p *OpenAI) Name() string {
 	return providerName
 }
 
 // Models returns the list of models this provider supports.
-func (p *Provider) Models() []types.ModelConfig {
+func (p *OpenAI) Models() []types.ModelConfig {
 	return p.models
 }
 
 // Supports returns true if this provider supports the given capability.
-func (p *Provider) Supports(cap provider.Capability) bool {
+func (p *OpenAI) Supports(cap provider.Capability) bool {
 	switch cap {
 	case provider.CapChat, provider.CapStream, provider.CapTools, provider.CapVision, provider.CapJSONMode:
 		return true
@@ -66,11 +70,24 @@ func (p *Provider) Supports(cap provider.Capability) bool {
 }
 
 // Close releases any resources held by the provider.
-func (p *Provider) Close() error {
+func (p *OpenAI) Close() error {
 	return nil
 }
 
+// Ping verifies connectivity by calling GET /models with a short timeout.
+func (p *OpenAI) Ping(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	var result struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	return p.client.DoJSON(ctx, http.MethodGet, p.baseURL+"/models", p.auth, nil, &result)
+}
+
 // chatEndpoint returns the chat completions endpoint URL.
-func (p *Provider) chatEndpoint() string {
+func (p *OpenAI) chatEndpoint() string {
 	return p.baseURL + "/chat/completions"
 }
