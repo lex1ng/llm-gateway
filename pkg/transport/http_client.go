@@ -39,6 +39,7 @@ func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient {
 	}
 
 	transport := &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
 		MaxIdleConns:        cfg.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.MaxIdleConns,
 		IdleConnTimeout:     cfg.IdleConnTimeout,

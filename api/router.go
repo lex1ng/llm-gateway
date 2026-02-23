@@ -3,7 +3,9 @@ package api
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/lex1ng/llm-gateway/api/handler"
 	"github.com/lex1ng/llm-gateway/pkg/gateway"
@@ -45,9 +47,37 @@ func (r *Router) setupRoutes() {
 	// - /v1/audio/transcriptions (Sprint 7)
 }
 
-// ServeHTTP implements http.Handler.
+// ServeHTTP implements http.Handler with request logging.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	r.mux.ServeHTTP(w, req)
+	start := time.Now()
+	rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+	r.mux.ServeHTTP(rw, req)
+	slog.Info("request",
+		"method", req.Method,
+		"path", req.URL.Path,
+		"status", rw.statusCode,
+		"duration_ms", time.Since(start).Milliseconds(),
+		"remote", req.RemoteAddr,
+	)
+}
+
+// responseWriter wraps http.ResponseWriter to capture the status code.
+// It also implements http.Flusher to support streaming responses.
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+// Flush implements http.Flusher, required for SSE streaming.
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // handleListModels handles GET /v1/models.
