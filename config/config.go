@@ -250,6 +250,11 @@ func Load(path string) (*Config, error) {
 	// Apply defaults
 	applyDefaults(&cfg)
 
+	// Validate
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
 }
 
@@ -263,7 +268,56 @@ func LoadFromBytes(data []byte) (*Config, error) {
 	}
 
 	applyDefaults(&cfg)
+
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
+}
+
+// Validate checks the configuration for required fields and consistency.
+func (c *Config) Validate() error {
+	// At least one provider must be configured
+	if len(c.Providers) == 0 {
+		return fmt.Errorf("validate: no providers configured")
+	}
+
+	// Each provider must have an API key (or be explicitly skipped)
+	for name, prov := range c.Providers {
+		if prov.APIKey == "" {
+			return fmt.Errorf("validate: provider %q has no api_key", name)
+		}
+	}
+
+	// Model catalog entries must reference existing providers
+	providerSet := make(map[string]bool, len(c.Providers))
+	for name := range c.Providers {
+		providerSet[name] = true
+	}
+	for _, model := range c.ModelCatalog {
+		if !providerSet[model.Provider] {
+			return fmt.Errorf("validate: model %q references unconfigured provider %q", model.ID, model.Provider)
+		}
+	}
+
+	// Tier routing entries must reference existing providers and models
+	modelSet := make(map[string]bool, len(c.ModelCatalog))
+	for _, model := range c.ModelCatalog {
+		modelSet[model.ID] = true
+	}
+	for tier, entries := range c.TierRouting {
+		for _, entry := range entries {
+			if !providerSet[entry.Provider] {
+				return fmt.Errorf("validate: tier_routing[%s] references unconfigured provider %q", tier, entry.Provider)
+			}
+			if !modelSet[entry.Model] {
+				return fmt.Errorf("validate: tier_routing[%s] references unconfigured model %q", tier, entry.Model)
+			}
+		}
+	}
+
+	return nil
 }
 
 // envVarRegex matches ${VAR_NAME} patterns.

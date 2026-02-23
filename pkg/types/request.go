@@ -42,18 +42,7 @@ type ResponseFormat struct {
 	Type string `json:"type"` // "text" or "json_object"
 }
 
-// Tool represents a tool/function available to the model.
-type Tool struct {
-	Type     string       `json:"type"` // "function"
-	Function ToolFunction `json:"function"`
-}
-
-// ToolFunction describes a callable function.
-type ToolFunction struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"` // JSON Schema
-}
+// Tool and ToolFunction are defined in tool.go
 
 // EmbedRequest represents an embedding request.
 type EmbedRequest struct {

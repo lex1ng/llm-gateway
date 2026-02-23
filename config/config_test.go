@@ -119,6 +119,77 @@ tier_routing:
 	}
 }
 
+func TestValidate_NoProviders(t *testing.T) {
+	cfg := &Config{}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("expected validation error for empty providers")
+	}
+}
+
+func TestValidate_MissingAPIKey(t *testing.T) {
+	cfg := &Config{
+		Providers: map[string]ProviderConfig{
+			"openai": {BaseURL: "https://api.openai.com/v1"},
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("expected validation error for missing api_key")
+	}
+}
+
+func TestValidate_ModelReferencesUnknownProvider(t *testing.T) {
+	cfg := &Config{
+		Providers: map[string]ProviderConfig{
+			"openai": {APIKey: "sk-test"},
+		},
+		ModelCatalog: []ModelCatalogEntry{
+			{ID: "model-1", Provider: "nonexistent"},
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("expected validation error for model referencing unknown provider")
+	}
+}
+
+func TestValidate_TierRoutingReferencesUnknownModel(t *testing.T) {
+	cfg := &Config{
+		Providers: map[string]ProviderConfig{
+			"openai": {APIKey: "sk-test"},
+		},
+		ModelCatalog: []ModelCatalogEntry{
+			{ID: "gpt-4o", Provider: "openai"},
+		},
+		TierRouting: map[string][]RouteEntry{
+			"large": {{Provider: "openai", Model: "nonexistent-model", Priority: 1}},
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("expected validation error for tier routing referencing unknown model")
+	}
+}
+
+func TestValidate_Valid(t *testing.T) {
+	cfg := &Config{
+		Providers: map[string]ProviderConfig{
+			"openai": {APIKey: "sk-test"},
+		},
+		ModelCatalog: []ModelCatalogEntry{
+			{ID: "gpt-4o", Provider: "openai"},
+		},
+		TierRouting: map[string][]RouteEntry{
+			"large": {{Provider: "openai", Model: "gpt-4o", Priority: 1}},
+		},
+	}
+	err := cfg.Validate()
+	if err != nil {
+		t.Errorf("expected no validation error, got: %v", err)
+	}
+}
+
 func TestApplyDefaults(t *testing.T) {
 	cfg := &Config{}
 	applyDefaults(cfg)

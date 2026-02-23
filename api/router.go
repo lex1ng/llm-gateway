@@ -2,6 +2,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/lex1ng/llm-gateway/api/handler"
@@ -87,16 +88,7 @@ func (r *Router) handleListModels(w http.ResponseWriter, req *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-
-	// Simple JSON encoding
-	w.Write([]byte(`{"object":"list","data":[`))
-	for i, m := range resp.Data {
-		if i > 0 {
-			w.Write([]byte(","))
-		}
-		w.Write([]byte(`{"id":"` + m.ID + `","object":"model","owned_by":"` + m.OwnedBy + `"}`))
-	}
-	w.Write([]byte(`]}`))
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleHealth handles health check requests.

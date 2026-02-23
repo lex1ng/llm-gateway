@@ -170,16 +170,4 @@ type Document struct {
 	MediaID string `json:"media_id,omitempty"` // platform-specific media ID
 }
 
-// ToolCall represents a tool/function call made by the assistant.
-// Defined here to avoid circular imports; full Tool types in tool.go.
-type ToolCall struct {
-	ID       string       `json:"id"`
-	Type     string       `json:"type"` // "function"
-	Function FunctionCall `json:"function"`
-}
-
-// FunctionCall contains the function name and arguments.
-type FunctionCall struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"` // JSON string
-}
+// ToolCall and FunctionCall are defined in tool.go
