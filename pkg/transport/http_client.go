@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/lex1ng/llm-gateway/pkg/types"
@@ -21,9 +23,10 @@ type HTTPClient struct {
 
 // HTTPClientConfig contains configuration for HTTPClient.
 type HTTPClientConfig struct {
-	Timeout       time.Duration
-	MaxIdleConns  int
+	Timeout         time.Duration
+	MaxIdleConns    int
 	IdleConnTimeout time.Duration
+	Proxy           string // "http://host:port", "none"/"direct" for no proxy, "" for env default
 }
 
 // NewHTTPClient creates a new HTTPClient with the given configuration.
@@ -39,7 +42,7 @@ func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient {
 	}
 
 	transport := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
+		Proxy:               resolveProxyFunc(cfg.Proxy),
 		MaxIdleConns:        cfg.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.MaxIdleConns,
 		IdleConnTimeout:     cfg.IdleConnTimeout,
@@ -54,9 +57,34 @@ func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient {
 	}
 }
 
-// DefaultHTTPClient returns an HTTPClient with default settings.
+// DefaultHTTPClient returns an HTTPClient with default settings (uses env proxy).
 func DefaultHTTPClient() *HTTPClient {
 	return NewHTTPClient(HTTPClientConfig{})
+}
+
+// NewHTTPClientWithProxy creates an HTTPClient with a specific proxy configuration.
+func NewHTTPClientWithProxy(proxy string) *HTTPClient {
+	return NewHTTPClient(HTTPClientConfig{Proxy: proxy})
+}
+
+// resolveProxyFunc returns the appropriate proxy function based on the proxy config string.
+//   - "http://host:port" or "socks5://host:port": use fixed proxy
+//   - "none" or "direct": no proxy (direct connect)
+//   - "" (empty): use system environment variables (HTTP_PROXY/HTTPS_PROXY)
+func resolveProxyFunc(proxy string) func(*http.Request) (*url.URL, error) {
+	p := strings.TrimSpace(strings.ToLower(proxy))
+	switch {
+	case p == "" :
+		return http.ProxyFromEnvironment
+	case p == "none" || p == "direct":
+		return nil // no proxy
+	default:
+		proxyURL, err := url.Parse(proxy)
+		if err != nil {
+			return http.ProxyFromEnvironment // fallback on parse error
+		}
+		return http.ProxyURL(proxyURL)
+	}
 }
 
 // Do sends an HTTP request and returns the response.

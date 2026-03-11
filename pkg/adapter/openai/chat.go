@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -76,6 +77,22 @@ func (p *OpenAI) buildChatRequest(req *types.ChatRequest) *openAIChatRequest {
 	if req.ResponseFormat != nil {
 		openAIReq.ResponseFormat = &openAIResponseFormat{
 			Type: req.ResponseFormat.Type,
+		}
+	}
+
+	// Pass through platform-specific extra fields
+	if len(req.Extra) > 0 {
+		openAIReq.Extra = req.Extra
+	}
+
+	// Platform quirk: DashScope qwen3+ models require enable_thinking=false for non-streaming.
+	// Only inject for DashScope (alibaba) provider, not all providers.
+	if !openAIReq.Stream && p.name == "alibaba" {
+		if openAIReq.Extra == nil {
+			openAIReq.Extra = make(map[string]any)
+		}
+		if _, ok := openAIReq.Extra["enable_thinking"]; !ok {
+			openAIReq.Extra["enable_thinking"] = false
 		}
 	}
 
@@ -159,6 +176,34 @@ type openAIChatRequest struct {
 	ToolChoice          any                    `json:"tool_choice,omitempty"`
 	ResponseFormat      *openAIResponseFormat  `json:"response_format,omitempty"`
 	ReasoningEffort     string                 `json:"reasoning_effort,omitempty"` // "none", "minimal", "low", "medium", "high"
+	Extra               map[string]any         `json:"-"`                          // Platform-specific fields, merged into top-level JSON
+}
+
+// MarshalJSON implements custom JSON marshaling that merges Extra fields into the top-level object.
+func (r *openAIChatRequest) MarshalJSON() ([]byte, error) {
+	// Use an alias to avoid infinite recursion
+	type Alias openAIChatRequest
+	data, err := json.Marshal((*Alias)(r))
+	if err != nil {
+		return nil, err
+	}
+	if len(r.Extra) == 0 {
+		return data, nil
+	}
+
+	// Merge extra fields into the JSON object
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	for k, v := range r.Extra {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		m[k] = raw
+	}
+	return json.Marshal(m)
 }
 
 type openAIMessage struct {

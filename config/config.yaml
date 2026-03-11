@@ -9,40 +9,62 @@ server:
   idle_timeout: 120s
 
 # Provider configurations
+# proxy 控制每个 provider 的 HTTP 代理行为：
+#   - "http://host:port" 或 "socks5://host:port": 使用指定代理
+#   - "none" 或 "direct": 不使用代理，直连
+#   - "" (留空/不写): 使用系统环境变量 (HTTP_PROXY/HTTPS_PROXY)
 providers:
   openai:
     base_url: "https://api.openai.com/v1"
     api_key: "${OPENAI_API_KEY}"
     rate_limit: 500
+    # proxy: ""                             # 默认使用环境变量代理（适合海外 API）
+    # extra:
+    #   chat_path: "/chat/completions"      # 自定义 chat endpoint 路径
+    #   responses_path: "/responses"         # 自定义 responses endpoint 路径
+    #   models_path: "/models"               # 自定义 models endpoint 路径
 
   anthropic:
-    base_url: "https://api.anthropic.com/v1"
+    base_url: "https://oneapi-comate.baidu-int.com/v1"
     api_key: "${ANTHROPIC_API_KEY}"
     rate_limit: 200
+    proxy: "none"                            # 内网代理，直连不走 HTTP 代理
+    extra:
+      api_format: "openai"                   # 代理走 OpenAI 兼容格式（/chat/completions）
+    # 直连 Anthropic 原生 API 时改为：
+    # base_url: "https://api.anthropic.com"
+    # proxy: ""                              # 海外直连需要代理
+    # extra: {}                              # 不写 api_format 即走原生 Anthropic 协议
 
   alibaba:
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key: "${DASHSCOPE_API_KEY}"
     platform: "alibaba"
     rate_limit: 300
+    proxy: "none"                            # 国内平台，直连
+    # extra:
+    #   chat_path: "/chat/completions"       # 自定义 chat endpoint 路径
 
   volcengine:
     base_url: "https://ark.cn-beijing.volces.com/api/v3"
     api_key: "${ARK_API_KEY}"
     platform: "volcengine"
     rate_limit: 300
+    proxy: "none"                            # 国内平台，直连
 
   zhipu:
     base_url: "https://open.bigmodel.cn/api/paas/v4"
     api_key: "${ZHIPU_API_KEY}"
     platform: "zhipu"
     rate_limit: 300
+    proxy: "none"                            # 国内平台，直连
 
   deepseek:
     base_url: "https://api.deepseek.com/v1"
     api_key: "${DEEPSEEK_API_KEY}"
     platform: "deepseek"
     rate_limit: 300
+    proxy: "none"                            # 国内平台，直连
 
   # baidu:
   #   base_url: "https://qianfan.baidubce.com/v2"

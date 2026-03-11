@@ -1,4 +1,11 @@
 // Package openai implements the OpenAI provider adapter.
+// Domestic platforms (Alibaba, Volcengine, Zhipu, etc.) reuse this adapter
+// with a different name and baseURL.
+//
+// Configurable via config.yaml extra fields:
+//   - chat_path: chat completions endpoint path (default "/chat/completions")
+//   - responses_path: responses API endpoint path (default "/responses")
+//   - models_path: models list endpoint path (default "/models")
 package openai
 
 import (
@@ -13,20 +20,24 @@ import (
 )
 
 const (
-	defaultBaseURL = "https://api.openai.com/v1"
-	providerName   = "openai"
+	defaultBaseURL       = "https://api.openai.com/v1"
+	defaultChatPath      = "/chat/completions"
+	defaultResponsesPath = "/responses"
+	defaultModelsPath    = "/models"
+	providerName         = "openai"
 )
 
 // OpenAI implements the OpenAI API adapter.
 // Since our internal format is OpenAI-compatible, most requests are nearly pass-through.
-// Domestic platforms (Alibaba, Volcengine, Zhipu, etc.) reuse this adapter
-// with a different name and baseURL.
 type OpenAI struct {
-	client  *transport.HTTPClient
-	auth    transport.AuthStrategy
-	baseURL string
-	name    string
-	models  []types.ModelConfig
+	client        *transport.HTTPClient
+	auth          transport.AuthStrategy
+	baseURL       string
+	chatPath      string // configurable chat completions endpoint path
+	responsesPath string // configurable responses endpoint path
+	modelsPath    string // configurable models list endpoint path
+	name          string
+	models        []types.ModelConfig
 }
 
 // New creates a new OpenAI provider.
@@ -36,21 +47,35 @@ func New(cfg config.ProviderConfig, models []types.ModelConfig) (*OpenAI, error)
 
 // NewWithName creates a new OpenAI-compatible provider with a custom name.
 // Used by domestic platforms that implement the OpenAI-compatible API.
+//
+// Configurable extra fields in config.yaml:
+//
+//	chat_path:      "/chat/completions"   # chat completions endpoint path
+//	responses_path: "/responses"          # responses API endpoint path
+//	models_path:    "/models"             # models list endpoint path
 func NewWithName(name string, cfg config.ProviderConfig, models []types.ModelConfig) (*OpenAI, error) {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 
-	// All OpenAI-compatible platforms use Bearer auth
-	auth := transport.NewAuthStrategy(name, cfg.APIKey)
+	chatPath := cfg.GetExtra("chat_path", defaultChatPath)
+	responsesPath := cfg.GetExtra("responses_path", defaultResponsesPath)
+	modelsPath := cfg.GetExtra("models_path", defaultModelsPath)
+
+	// OpenAI adapter always uses Bearer auth, regardless of provider name.
+	// (NewAuthStrategy would pick AnthropicAuth/GoogleAuth based on name, which is wrong here)
+	auth := &transport.BearerAuth{APIKey: cfg.APIKey}
 
 	return &OpenAI{
-		client:  transport.DefaultHTTPClient(),
-		auth:    auth,
-		baseURL: baseURL,
-		name:    name,
-		models:  models,
+		client:        transport.NewHTTPClientWithProxy(cfg.Proxy),
+		auth:          auth,
+		baseURL:       baseURL,
+		chatPath:      chatPath,
+		responsesPath: responsesPath,
+		modelsPath:    modelsPath,
+		name:          name,
+		models:        models,
 	}, nil
 }
 
@@ -97,10 +122,15 @@ func (p *OpenAI) Ping(ctx context.Context) error {
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	return p.client.DoJSON(ctx, http.MethodGet, p.baseURL+"/models", p.auth, nil, &result)
+	return p.client.DoJSON(ctx, http.MethodGet, p.baseURL+p.modelsPath, p.auth, nil, &result)
 }
 
 // chatEndpoint returns the chat completions endpoint URL.
 func (p *OpenAI) chatEndpoint() string {
-	return p.baseURL + "/chat/completions"
+	return p.baseURL + p.chatPath
+}
+
+// responsesEndpoint returns the Responses API endpoint URL.
+func (p *OpenAI) responsesEndpoint() string {
+	return p.baseURL + p.responsesPath
 }

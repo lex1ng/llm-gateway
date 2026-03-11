@@ -58,11 +58,6 @@ func (p *OpenAI) ResponsesStream(ctx context.Context, req *types.ResponsesReques
 	return events, nil
 }
 
-// responsesEndpoint returns the Responses API endpoint URL.
-func (p *OpenAI) responsesEndpoint() string {
-	return p.baseURL + "/responses"
-}
-
 // buildResponsesRequest converts types.ResponsesRequest to OpenAI-specific format.
 func (p *OpenAI) buildResponsesRequest(req *types.ResponsesRequest) *openAIResponsesRequest {
 	openAIReq := &openAIResponsesRequest{

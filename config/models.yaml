@@ -65,7 +65,7 @@ model_catalog:
   #     embedding: true
 
   # ========== Anthropic Models ==========
-  - id: "claude-sonnet-4-5-20250929"
+  - id: "Claude Opus 4.6"
     provider: "anthropic"
     tier: "large"
     context_window: 200000
@@ -80,32 +80,11 @@ model_catalog:
       streaming: true
       reasoning: true
 
-  - id: "claude-3-5-sonnet-20241022"
-    provider: "anthropic"
-    tier: "large"
-    context_window: 200000
-    max_output: 8192
-    input_price: 0.003
-    output_price: 0.015
-    capabilities:
-      chat: true
-      vision: true
-      tools: true
-      json_mode: true
-      streaming: true
-
-  - id: "claude-3-5-haiku-20241022"
-    provider: "anthropic"
-    tier: "small"
-    context_window: 200000
-    max_output: 8192
-    input_price: 0.0008
-    output_price: 0.004
-    capabilities:
-      chat: true
-      vision: true
-      tools: true
-      streaming: true
+  # 需要其他模型时在这里添加，id 填代理商实际的模型名
+  # - id: "Claude Sonnet 4"
+  #   provider: "anthropic"
+  #   tier: "medium"
+  #   ...
 
   # ========== Alibaba (DashScope) Models ==========
   - id: "qwen-max"
@@ -248,9 +227,6 @@ tier_routing:
     - provider: "openai"
       model: "gpt-4o-mini"
       priority: 4
-    - provider: "anthropic"
-      model: "claude-3-5-haiku-20241022"
-      priority: 5
 
   medium:
     - provider: "alibaba"
@@ -268,7 +244,7 @@ tier_routing:
       model: "gpt-4o"
       priority: 1
     - provider: "anthropic"
-      model: "claude-sonnet-4-5-20250929"
+      model: "Claude Opus 4.6"
       priority: 2
     - provider: "deepseek"
       model: "deepseek-reasoner"

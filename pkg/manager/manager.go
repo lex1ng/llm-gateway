@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/lex1ng/llm-gateway/config"
+	"github.com/lex1ng/llm-gateway/pkg/adapter/anthropic"
 	"github.com/lex1ng/llm-gateway/pkg/adapter/openai"
 	"github.com/lex1ng/llm-gateway/pkg/provider"
 	"github.com/lex1ng/llm-gateway/pkg/types"
@@ -60,13 +61,21 @@ func registerProviders(cfg *config.Config, registry *provider.Registry) error {
 		switch name {
 		case "openai":
 			p, err = openai.New(provCfg, models)
+		case "anthropic":
+			// Support OpenAI-compatible proxies (e.g., OneAPI) via api_format: "openai"
+			if provCfg.GetExtra("api_format", "anthropic") == "openai" {
+				p, err = openai.NewWithName(name, provCfg, models)
+			} else {
+				p, err = anthropic.New(provCfg, models)
+			}
 		case "alibaba", "baidu", "volcengine", "zhipu", "minimax", "deepseek", "moonshot", "01ai", "baichuan":
 			// Domestic platforms use OpenAI-compatible API, reuse the adapter with custom name
 			p, err = openai.NewWithName(name, provCfg, models)
-		// TODO: Add other providers (anthropic, google)
+		// TODO: Add other providers (google)
 		default:
-			log.Printf("[WARN] provider %q is configured but has no adapter implementation, skipping", name)
-			continue
+			// Unknown providers: try OpenAI-compatible adapter as fallback
+			log.Printf("[INFO] provider %q using OpenAI-compatible adapter", name)
+			p, err = openai.NewWithName(name, provCfg, models)
 		}
 
 		if err != nil {

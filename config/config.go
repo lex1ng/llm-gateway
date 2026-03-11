@@ -42,6 +42,47 @@ type ProviderConfig struct {
 	Platform  string `yaml:"platform,omitempty"` // For compatible providers: alibaba, volcengine, etc.
 	RateLimit int    `yaml:"rate_limit"`         // Requests per minute
 	Timeout   time.Duration `yaml:"timeout,omitempty"`
+
+	// Proxy controls HTTP proxy behavior for this provider:
+	//   - "http://host:port" or "socks5://host:port": use this proxy
+	//   - "none" or "direct": bypass proxy, always direct connect
+	//   - "" (empty): use system environment (HTTP_PROXY/HTTPS_PROXY)
+	Proxy string `yaml:"proxy,omitempty"`
+
+	// Extra holds provider-specific configuration options.
+	// Examples:
+	//   anthropic_version: "2023-06-01"   (Anthropic API version header)
+	//   default_max_tokens: 4096          (Anthropic required max_tokens)
+	Extra map[string]any `yaml:"extra,omitempty"`
+}
+
+// GetExtra returns a string value from the provider's extra config, or the default if not set.
+func (c ProviderConfig) GetExtra(key, defaultVal string) string {
+	if c.Extra == nil {
+		return defaultVal
+	}
+	if v, ok := c.Extra[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return defaultVal
+}
+
+// GetExtraInt returns an int value from the provider's extra config, or the default if not set.
+func (c ProviderConfig) GetExtraInt(key string, defaultVal int) int {
+	if c.Extra == nil {
+		return defaultVal
+	}
+	if v, ok := c.Extra[key]; ok {
+		switch n := v.(type) {
+		case int:
+			return n
+		case float64:
+			return int(n)
+		}
+	}
+	return defaultVal
 }
 
 // ModelCatalogEntry defines a model in the catalog.
