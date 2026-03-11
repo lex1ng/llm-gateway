@@ -127,45 +127,25 @@ llm-service/
 │   │   └── capability.go             # 能力枚举与查询
 │   │
 │   ├── adapter/                       # ========== 平台适配器 ==========
-│   │   ├── openai/
-│   │   │   ├── provider.go           # OpenAI 原生适配
-│   │   │   ├── chat.go               # Chat Completions
-│   │   │   ├── stream.go             # 流式解析
-│   │   │   ├── embedding.go          # Embeddings
-│   │   │   ├── image.go              # DALL-E / GPT Image
-│   │   │   ├── audio.go              # TTS / STT
-│   │   │   ├── video.go              # Sora
-│   │   │   └── mapper.go            # 请求/响应映射
+│   │   ├── openai/                   # OpenAI 及所有兼容接口的适配器
+│   │   │   ├── provider.go           # OpenAI struct + NewWithName() 复用
+│   │   │   ├── chat.go               # Chat Completions + 请求/响应映射
+│   │   │   ├── stream.go             # 流式 SSE 解析
+│   │   │   ├── responses.go          # Responses API（推理模型优化）
+│   │   │   ├── embedding.go          # Embeddings（Sprint 6）
+│   │   │   ├── image.go              # DALL-E / GPT Image（Sprint 7）
+│   │   │   └── audio.go              # TTS / STT（Sprint 7）
 │   │   │
-│   │   ├── anthropic/
-│   │   │   ├── provider.go           # Anthropic 原生适配
-│   │   │   ├── chat.go
-│   │   │   ├── stream.go
-│   │   │   └── mapper.go            # system prompt 抽取、字段映射
+│   │   ├── anthropic/                # Anthropic 原生 Messages API
+│   │   │   ├── provider.go           # Anthropic struct + 可配置 endpoints
+│   │   │   ├── chat.go               # Chat + 消息转换（system 抽取等）
+│   │   │   └── stream.go             # Anthropic SSE 事件解析
 │   │   │
-│   │   ├── google/
-│   │   │   ├── provider.go           # Google Gemini 适配
-│   │   │   ├── chat.go
-│   │   │   ├── stream.go
-│   │   │   ├── embedding.go
-│   │   │   └── mapper.go            # contents/parts 结构转换
-│   │   │
-│   │   └── compatible/               # OpenAI 兼容层（国内平台共用）
-│   │       ├── provider.go           # 通用 OpenAI 兼容适配
+│   │   └── google/                   # Google Gemini（Sprint 7）
+│   │       ├── provider.go
 │   │       ├── chat.go
 │   │       ├── stream.go
-│   │       ├── embedding.go
-│   │       ├── image.go              # 异步图像生成（国内平台特有）
-│   │       ├── video.go              # 异步视频生成
-│   │       ├── audio.go              # TTS / STT
-│   │       ├── agent.go              # Agent 调用（平台专属）
-│   │       ├── workflow.go           # Workflow 调用（平台专属）
-│   │       └── platforms.go          # 各平台差异配置（base_url/model/特殊参数）
-│   │
-│   ├── mapper/                        # ========== 消息转换层 ==========
-│   │   ├── message.go                # 统一 Message <-> 各平台格式 转换
-│   │   ├── tool.go                   # 统一 Tool <-> 各平台 tool 格式
-│   │   └── stream.go                # 统一 StreamEvent <-> 各平台 SSE 解析
+│   │       └── embedding.go
 │   │
 │   ├── manager/                       # ========== 编排层 ==========
 │   │   ├── manager.go                # 核心编排器（路由/缓存/指标）
@@ -199,19 +179,17 @@ llm-service/
 │   │   └── logger.go                 # 审计事件定义与输出
 │   │
 │   └── transport/                     # ========== 传输层 ==========
-│       ├── http_client.go            # 统一 HTTP 客户端（重试/超时/日志）
-│       ├── auth.go                   # 上游 Provider 认证策略（Bearer/x-api-key/access_token）
-│       └── sse.go                    # SSE 通用解析器
+│       ├── http_client.go            # 统一 HTTP 客户端（per-provider proxy / 超时 / 连接池）
+│       ├── auth.go                   # 上游 Provider 认证策略（Bearer/x-api-key/access_token/Dynamic）
+│       └── sse.go                    # SSE 通用解析器 + SSE 写入器
 │
 ├── api/                               # ========== 对外 API ==========
 │   ├── handler/
 │   │   ├── chat.go                   # POST /v1/chat/completions
-│   │   ├── embedding.go             # POST /v1/embeddings
-│   │   ├── image.go                 # POST /v1/images/generations
-│   │   ├── audio.go                 # POST /v1/audio/speech | /transcriptions
-│   │   ├── video.go                 # POST /v1/videos
-│   │   ├── agent.go                 # POST /v1/agent/invoke
-│   │   └── workflow.go              # POST /v1/workflow/run
+│   │   ├── responses.go             # POST /v1/responses（Responses API）
+│   │   ├── embedding.go             # POST /v1/embeddings（Sprint 6）
+│   │   ├── image.go                 # POST /v1/images/generations（Sprint 7）
+│   │   └── audio.go                 # POST /v1/audio/speech | /transcriptions（Sprint 7）
 │   ├── middleware/
 │   │   ├── auth.go                  # 租户认证 + RBAC 鉴权
 │   │   ├── ratelimit.go
@@ -264,16 +242,32 @@ type Content struct {
 
 // ContentBlock 多模态内容块
 type ContentBlock struct {
-    Type     string `json:"type"`               // text / image_url / audio / document
-    Text     string `json:"text,omitempty"`
-    ImageURL *Image `json:"image_url,omitempty"`
-    Audio    *Audio `json:"audio,omitempty"`
+    Type     ContentType `json:"type"`               // text / image_url / audio / document
+    Text     string      `json:"text,omitempty"`
+    ImageURL *ImageURL   `json:"image_url,omitempty"`
+    Audio    *Audio      `json:"audio,omitempty"`
+    Document *Document   `json:"document,omitempty"`  // 文档附件
 }
 
-type Image struct {
-    URL    string `json:"url"`              // URL 或 data:base64
-    Detail string `json:"detail,omitempty"` // low / high / auto
+type ContentType string
+const (
+    ContentTypeText     ContentType = "text"
+    ContentTypeImageURL ContentType = "image_url"
+    ContentTypeAudio    ContentType = "audio"
+    ContentTypeDocument ContentType = "document"
+)
+
+type ImageURL struct {
+    URL    string      `json:"url"`              // URL 或 data:base64
+    Detail ImageDetail `json:"detail,omitempty"` // low / high / auto
 }
+
+type ImageDetail string
+const (
+    ImageDetailLow  ImageDetail = "low"
+    ImageDetailHigh ImageDetail = "high"
+    ImageDetailAuto ImageDetail = "auto"
+)
 ```
 
 ### 4.2 请求与响应
@@ -291,13 +285,16 @@ type ChatRequest struct {
     Stream      bool      `json:"stream,omitempty"`
     Stop        []string  `json:"stop,omitempty"`
 
+    // --- 推理模型参数 (o1, o3, gpt-5, etc.) ---
+    ReasoningEffort string `json:"reasoning_effort,omitempty"` // "none", "minimal", "low", "medium", "high"
+
     // --- Tool Calling ---
-    Tools      []Tool      `json:"tools,omitempty"`
-    ToolChoice interface{} `json:"tool_choice,omitempty"` // string 或 object
+    Tools      []Tool `json:"tools,omitempty"`
+    ToolChoice any    `json:"tool_choice,omitempty"` // string 或 object
 
     // --- 路由控制 ---
     Provider  string    `json:"provider,omitempty"`   // 指定平台（覆盖路由）
-    ModelTier ModelTier `json:"model_tier,omitempty"` // 模型分层（SMALL/MEDIUM/LARGE）
+    ModelTier ModelTier `json:"model_tier,omitempty"` // 模型分层（small/medium/large）
 
     // --- 可靠性 ---
     IdempotencyKey string `json:"idempotency_key,omitempty"` // 幂等键，防止重试导致重复写入
@@ -331,13 +328,23 @@ type ChatResponse struct {
 }
 
 // StreamEvent 统一流式事件（解决 Shannon 双套流式接口问题）
+type StreamEventType string
+
+const (
+    StreamEventContentDelta  StreamEventType = "content_delta"
+    StreamEventToolCallDelta StreamEventType = "tool_call_delta"
+    StreamEventUsage         StreamEventType = "usage"
+    StreamEventDone          StreamEventType = "done"
+    StreamEventError         StreamEventType = "error"
+)
+
 type StreamEvent struct {
-    Type         string      `json:"type"`           // content_delta / tool_call_delta / usage / done / error
-    Delta        string      `json:"delta,omitempty"`
-    ToolCall     *ToolCall   `json:"tool_call,omitempty"`
-    Usage        *TokenUsage `json:"usage,omitempty"`
-    FinishReason string      `json:"finish_reason,omitempty"`
-    Error        string      `json:"error,omitempty"`
+    Type         StreamEventType `json:"type"`
+    Delta        string          `json:"delta,omitempty"`
+    ToolCall     *ToolCall       `json:"tool_call,omitempty"`
+    Usage        *TokenUsage     `json:"usage,omitempty"`
+    FinishReason string          `json:"finish_reason,omitempty"`
+    Error        string          `json:"error,omitempty"`
 }
 ```
 
@@ -389,13 +396,27 @@ type ModelCapabilities struct {
 type ErrorCode string
 
 const (
-    ErrAuthentication  ErrorCode = "authentication_error"
-    ErrRateLimit       ErrorCode = "rate_limit_error"
-    ErrInvalidRequest  ErrorCode = "invalid_request_error"
-    ErrModelNotFound   ErrorCode = "model_not_found"
-    ErrProviderError   ErrorCode = "provider_error"
-    ErrTimeout         ErrorCode = "timeout_error"
+    ErrAuthentication        ErrorCode = "authentication_error"
+    ErrRateLimit             ErrorCode = "rate_limit_error"
+    ErrInvalidRequest        ErrorCode = "invalid_request_error"
+    ErrModelNotFound         ErrorCode = "model_not_found"
+    ErrProviderNotFound      ErrorCode = "provider_not_found"       // NEW
+    ErrProviderError         ErrorCode = "provider_error"
+    ErrTimeout               ErrorCode = "timeout_error"
     ErrCapabilityUnavailable ErrorCode = "capability_unavailable"
+    ErrQuotaExceeded         ErrorCode = "quota_exceeded"           // NEW
+    ErrCircuitOpen           ErrorCode = "circuit_open"             // NEW
+    ErrCooldown              ErrorCode = "cooldown"                 // NEW
+    ErrInternalError         ErrorCode = "internal_error"           // NEW
+)
+
+// ErrorAction 四级错误分类（用于重试和降级决策）
+type ErrorAction int
+const (
+    ActionRetry     ErrorAction = iota // 可重试（5xx, timeout）
+    ActionRotateKey                    // 轮换 key 重试（401, 403, 429-key-level）
+    ActionFallback                     // 切换 provider（模型不支持等）
+    ActionAbort                        // 不可恢复（400 参数错误、余额不足）
 )
 
 type ProviderError struct {
@@ -423,24 +444,25 @@ func (e *ProviderError) IsTransient() bool {
 type TaskStatus string
 
 const (
-    TaskPending   TaskStatus = "pending"
-    TaskRunning   TaskStatus = "running"
-    TaskSucceeded TaskStatus = "succeeded"
-    TaskFailed    TaskStatus = "failed"
-    TaskCancelled TaskStatus = "cancelled"
+    TaskStatusPending   TaskStatus = "pending"
+    TaskStatusRunning   TaskStatus = "running"
+    TaskStatusSucceeded TaskStatus = "succeeded"
+    TaskStatusFailed    TaskStatus = "failed"
+    TaskStatusCanceled  TaskStatus = "canceled"
 )
 
 type AsyncTask struct {
-    TaskID    string            `json:"task_id"`
+    ID        string            `json:"id"`
     Provider  string            `json:"provider"`
+    Model     string            `json:"model"`
     Type      string            `json:"type"`       // image_gen / video_gen
     Status    TaskStatus        `json:"status"`
     Progress  int               `json:"progress"`   // 0-100
     ResultURL string            `json:"result_url,omitempty"`
-    Result    json.RawMessage   `json:"result,omitempty"`
     Error     string            `json:"error,omitempty"`
     CreatedAt int64             `json:"created_at"`
-    Extra     map[string]any    `json:"extra,omitempty"`
+    UpdatedAt int64             `json:"updated_at"`
+    ExpiresAt int64             `json:"expires_at,omitempty"`
 }
 ```
 
@@ -471,6 +493,13 @@ type ChatProvider interface {
     Provider
     Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
     ChatStream(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error)
+}
+
+// P0: Responses API（OpenAI 推理模型优化接口）
+type ResponsesProvider interface {
+    Provider
+    Responses(ctx context.Context, req *ResponsesRequest) (*ResponsesResponse, error)
+    ResponsesStream(ctx context.Context, req *ResponsesRequest) (<-chan ResponsesStreamEvent, error)
 }
 
 // P1: Tool Calling（通常与 Chat 一起，但逻辑上可分离）
@@ -536,6 +565,7 @@ type Capability string
 const (
     // --- 接口级能力（与 Provider 接口一一对应，注册时自动检测） ---
     CapChat      Capability = "chat"
+    CapResponses Capability = "responses"   // NEW: Responses API
     CapEmbed     Capability = "embedding"
     CapImageGen  Capability = "image_gen"
     CapVideoGen  Capability = "video_gen"
@@ -555,14 +585,15 @@ const (
 // capInterfaceMap 接口级能力 -> 对应的 interface 类型
 // 注册时通过此表自动检测 provider 实现了哪些接口，写入能力分桶
 var capInterfaceMap = map[Capability]reflect.Type{
-    CapChat:     reflect.TypeOf((*ChatProvider)(nil)).Elem(),
-    CapEmbed:    reflect.TypeOf((*EmbeddingProvider)(nil)).Elem(),
-    CapImageGen: reflect.TypeOf((*ImageGenProvider)(nil)).Elem(),
-    CapVideoGen: reflect.TypeOf((*VideoGenProvider)(nil)).Elem(),
-    CapTTS:      reflect.TypeOf((*TTSProvider)(nil)).Elem(),
-    CapSTT:      reflect.TypeOf((*STTProvider)(nil)).Elem(),
-    CapAgent:    reflect.TypeOf((*AgentProvider)(nil)).Elem(),
-    CapWorkflow: reflect.TypeOf((*WorkflowProvider)(nil)).Elem(),
+    CapChat:      reflect.TypeFor[ChatProvider](),
+    CapResponses: reflect.TypeFor[ResponsesProvider](),
+    CapEmbed:     reflect.TypeFor[EmbeddingProvider](),
+    CapImageGen:  reflect.TypeFor[ImageGenProvider](),
+    CapVideoGen:  reflect.TypeFor[VideoGenProvider](),
+    CapTTS:       reflect.TypeFor[TTSProvider](),
+    CapSTT:       reflect.TypeFor[STTProvider](),
+    CapAgent:     reflect.TypeFor[AgentProvider](),
+    CapWorkflow:  reflect.TypeFor[WorkflowProvider](),
 }
 ```
 
@@ -654,49 +685,131 @@ func (r *Registry) ListCapable(cap Capability) []Provider { ... }
 ```go
 // pkg/adapter/openai/provider.go
 
-type OpenAIProvider struct {
-    client  *http.Client
-    apiKey  string
-    baseURL string // 默认 https://api.openai.com/v1
-    models  []ModelConfig
+type OpenAI struct {
+    client        *transport.HTTPClient    // 使用统一 HTTP 客户端（支持 per-provider proxy）
+    auth          transport.AuthStrategy   // BearerAuth（始终使用 Bearer，不随 name 变化）
+    baseURL       string                   // 默认 "https://api.openai.com/v1"
+    chatPath      string                   // 可配置 chat endpoint 路径（默认 "/chat/completions"）
+    responsesPath string                   // 可配置 responses endpoint 路径（默认 "/responses"）
+    modelsPath    string                   // 可配置 models endpoint 路径（默认 "/models"）
+    name          string                   // provider 名称（"openai" 或自定义名，用于复用）
+    models        []types.ModelConfig
 }
 
-// 实现所有能力接口
-var _ ChatProvider     = (*OpenAIProvider)(nil)
-var _ EmbeddingProvider = (*OpenAIProvider)(nil)
-var _ ImageGenProvider  = (*OpenAIProvider)(nil)
-var _ TTSProvider       = (*OpenAIProvider)(nil)
-var _ STTProvider       = (*OpenAIProvider)(nil)
-var _ VideoGenProvider  = (*OpenAIProvider)(nil)
+// 实现的能力接口
+var _ provider.ChatProvider      = (*OpenAI)(nil)
+var _ provider.ResponsesProvider = (*OpenAI)(nil)  // NEW: Responses API
+// 以下待后续 Sprint 实现：
+// var _ provider.EmbeddingProvider = (*OpenAI)(nil)
+// var _ provider.ImageGenProvider  = (*OpenAI)(nil)
+// var _ provider.TTSProvider       = (*OpenAI)(nil)
+// var _ provider.STTProvider       = (*OpenAI)(nil)
+
+// New 创建 OpenAI provider
+func New(cfg config.ProviderConfig, models []types.ModelConfig) (*OpenAI, error) {
+    return NewWithName("openai", cfg, models)
+}
+
+// NewWithName 创建 OpenAI 兼容 provider，自定义名称
+// 国内平台（阿里百炼、火山引擎、智谱等）复用此构造函数，只需传不同的 name + baseURL
+func NewWithName(name string, cfg config.ProviderConfig, models []types.ModelConfig) (*OpenAI, error) {
+    chatPath := cfg.GetExtra("chat_path", "/chat/completions")
+    responsesPath := cfg.GetExtra("responses_path", "/responses")
+    modelsPath := cfg.GetExtra("models_path", "/models")
+
+    // 始终使用 BearerAuth（不因 name 不同而切换认证方式）
+    auth := &transport.BearerAuth{APIKey: cfg.APIKey}
+
+    return &OpenAI{
+        client:        transport.NewHTTPClientWithProxy(cfg.Proxy),
+        auth:          auth,
+        baseURL:       cfg.BaseURL,
+        chatPath:      chatPath,
+        responsesPath: responsesPath,
+        modelsPath:    modelsPath,
+        name:          name,
+        models:        models,
+    }, nil
+}
+
+// Ping 通过 GET /models 验证连通性
+func (p *OpenAI) Ping(ctx context.Context) error { ... }
+
+// getAuth 支持 BYOK 动态凭证
+func (p *OpenAI) getAuth(credentials map[string]string) transport.AuthStrategy {
+    if len(credentials) > 0 {
+        return transport.WithDynamicCredentials(p.auth, credentials)
+    }
+    return p.auth
+}
 ```
 
-请求格式即为内部标准，**无需转换**。
+**实现要点**：
+
+- 请求格式即为内部标准，**近乎直通**（仅需处理 `max_tokens` vs `max_completion_tokens` 选择、`Extra` 字段合并）
+- `Extra map[string]any` 通过自定义 `MarshalJSON()` 合并到 JSON 顶层（支持 DashScope `enable_thinking` 等平台专属字段）
+- Reasoning models（o1/o3/o4/gpt-5/gpt-4.1+）自动使用 `max_completion_tokens` 替代 `max_tokens`
+- DashScope qwen3+ 非流式请求自动注入 `enable_thinking=false`（仅当 `p.name == "alibaba"` 时）
+- Endpoint 路径（`chat_path`、`responses_path`、`models_path`）通过 `config.yaml` 的 `extra` 字段可配置
 
 ### 6.2 Anthropic — 原生适配（重点处理差异）
 
-```go
-// pkg/adapter/anthropic/mapper.go
+> **实现决策**：Mapper 不独立为 `pkg/mapper/` 包，而是内联在各 adapter 中（`chat.go` 内的 `buildRequest()` / `buildResponse()` / `extractSystemAndConvert()`）。原因：每个平台的映射逻辑与其私有 API 类型强耦合，独立包会增加不必要的跨包引用。
 
-// MapChatRequest 将统一 ChatRequest 转换为 Anthropic 格式
-func MapChatRequest(req *ChatRequest) *anthropicRequest {
+```go
+// pkg/adapter/anthropic/provider.go
+
+type Anthropic struct {
+    client       *transport.HTTPClient     // 使用统一 HTTP 客户端（支持 per-provider proxy）
+    auth         transport.AuthStrategy    // AnthropicAuth（x-api-key + anthropic-version）
+    baseURL      string                    // 默认 "https://api.anthropic.com"
+    messagesPath string                    // 可配置 endpoint 路径（默认 "/v1/messages"）
+    maxTokens    int                       // 可配置默认 max_tokens（默认 4096）
+    models       []types.ModelConfig
+}
+
+// 可配置的 extra 字段：
+//   anthropic_version:  "2023-06-01"     # API version header
+//   default_max_tokens: 4096             # default max_tokens（Anthropic 必填）
+//   messages_path:      "/v1/messages"   # endpoint path（代理场景可改）
+//   api_format:         "openai"         # 设为 "openai" 时走 OpenAI 兼容协议（如 OneAPI 代理）
+
+// Ping 通过发送 minimal 请求验证连通性
+func (p *Anthropic) Ping(ctx context.Context) error { ... }
+```
+
+```go
+// pkg/adapter/anthropic/chat.go — 请求/响应映射（内联在 adapter 中）
+
+// buildRequest 将统一 ChatRequest 转换为 Anthropic 格式
+func (p *Anthropic) buildRequest(req *types.ChatRequest) *anthropicRequest {
+    system, messages := extractSystemAndConvert(req.Messages)
     ar := &anthropicRequest{
-        Model:     req.Model,
-        MaxTokens: resolveMaxTokens(req), // 必填，提供默认值 4096
+        Model:    req.Model,
+        Messages: messages,
+        System:   system,
     }
 
-    // 1. 从 messages 中抽取 system prompt
-    ar.System, ar.Messages = extractSystem(req.Messages)
+    // max_tokens 必填（Anthropic 要求）
+    if req.MaxTokens != nil {
+        ar.MaxTokens = *req.MaxTokens
+    } else {
+        ar.MaxTokens = p.maxTokens  // 使用可配置默认值
+    }
 
-    // 2. 转换 stop -> stop_sequences
+    // stop → stop_sequences
     ar.StopSequences = req.Stop
 
-    // 3. 转换 tool_choice: string -> object
+    // tool_choice 格式转换: string → object
+    //   "auto" → {"type":"auto"}
+    //   "required" → {"type":"any"}
+    //   {"function":{"name":"xxx"}} → {"type":"tool","name":"xxx"}
     ar.ToolChoice = convertToolChoice(req.ToolChoice)
 
-    // 4. 转换 tools 格式: parameters -> input_schema
+    // tools 格式转换: parameters → input_schema
     ar.Tools = convertTools(req.Tools)
 
-    // 5. 传递 thinking 等独有参数
+    // 传递 thinking 等 Anthropic 独有参数
     if v, ok := req.Extra["thinking"]; ok {
         ar.Thinking = v
     }
@@ -704,31 +817,42 @@ func MapChatRequest(req *ChatRequest) *anthropicRequest {
     return ar
 }
 
-// MapChatResponse 将 Anthropic 响应转换为统一格式
-func MapChatResponse(ar *anthropicResponse) *ChatResponse {
-    return &ChatResponse{
-        ID:           ar.ID,
-        Model:        ar.Model,
-        Provider:     "anthropic",
-        Content:      extractText(ar.Content),
-        FinishReason: mapStopReason(ar.StopReason), // stop_reason -> finish_reason
-        ToolCalls:    extractToolCalls(ar.Content),
-        Usage: TokenUsage{
-            PromptTokens:     ar.Usage.InputTokens,      // 字段名映射
-            CompletionTokens: ar.Usage.OutputTokens,
+// buildResponse 将 Anthropic 响应转换为统一格式
+func (p *Anthropic) buildResponse(resp *anthropicResponse) *types.ChatResponse {
+    return &types.ChatResponse{
+        ID:           resp.ID,
+        Model:        resp.Model,
+        Content:      extractText(resp.Content),
+        FinishReason: mapStopReason(resp.StopReason),  // end_turn→stop, tool_use→tool_calls
+        ToolCalls:    extractToolCalls(resp.Content),   // tool_use blocks → []ToolCall
+        Usage: types.TokenUsage{
+            PromptTokens:     resp.Usage.InputTokens,   // 字段名映射
+            CompletionTokens: resp.Usage.OutputTokens,
+            TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
         },
     }
 }
+
+// extractSystemAndConvert 抽取 system 消息为顶层字段，转换其余消息
+// 特殊处理：tool role → user + tool_result block，assistant + tool_calls → content blocks
+func extractSystemAndConvert(messages []types.Message) (string, []anthropicMessage) { ... }
 ```
 
 **关键映射点**:
 - `system` 在 messages 中 → 顶层字段
-- `max_tokens` 可选 → 必填（默认 4096）
+- `max_tokens` 可选 → 必填（默认 4096，可通过 extra 配置）
 - `stop` → `stop_sequences`
-- `finish_reason` ← `stop_reason`
+- `finish_reason` ← `stop_reason`（`end_turn`→`stop`, `tool_use`→`tool_calls`）
 - `prompt_tokens/completion_tokens` ← `input_tokens/output_tokens`
 - `tool_choice: "auto"` → `tool_choice: {"type":"auto"}`
+- `tool_choice: "required"` → `tool_choice: {"type":"any"}`
 - 流式 SSE: `choices[0].delta.content` ← `content_block_delta.delta.text`
+- `tool` role → `user` role + `tool_result` content block
+- multimodal `image_url` → `image` type + `source` object
+
+> **`api_format: "openai"` 支持**：Anthropic provider 配置中如果 `extra.api_format == "openai"`，
+> Manager 在初始化时会使用 `openai.NewWithName("anthropic", cfg, models)` 代替原生 Anthropic adapter，
+> 走 OpenAI 兼容协议（适用于 OneAPI 等代理场景）。
 
 ### 6.3 Google Gemini — 原生适配（差异最大）
 
@@ -769,61 +893,34 @@ func MapChatRequest(req *ChatRequest) *geminiRequest {
 
 ### 6.4 OpenAI Compatible — 国内平台通用层（最大复用）
 
+> **实现决策**：不创建独立的 `pkg/adapter/compatible/` 包，而是**直接复用 OpenAI adapter + `NewWithName()`**。
+> 原因：国内平台（阿里百炼、火山引擎、智谱、DeepSeek 等）均实现了 OpenAI 兼容协议，
+> Chat/Stream 逻辑与 OpenAI 完全一致（仅 `baseURL` 不同），无需任何额外适配。
+
 ```go
-// pkg/adapter/compatible/provider.go
+// 在 Manager 初始化时，根据 config.yaml 中的 provider 名称创建对应实例：
+//
+// providers:
+//   alibaba:
+//     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+//     api_key: "${DASHSCOPE_API_KEY}"
+//     proxy: "none"
+//
+// 代码中直接调用：
+//   openai.NewWithName("alibaba", cfg, models)
+//
+// 等价于创建一个名为 "alibaba" 的 OpenAI 适配器，baseURL 指向百炼。
+// 火山引擎、智谱、DeepSeek 等同理。
 
-type CompatibleProvider struct {
-    client   *http.Client
-    apiKey   string
-    baseURL  string
-    platform Platform    // alibaba / baidu / volcengine / zhipu / minimax
-    models   []ModelConfig
-    quirks   PlatformQuirks // 平台特殊行为
-}
-
-// PlatformQuirks 各平台微小差异
-type PlatformQuirks struct {
-    // 图像/视频生成走异步任务
-    AsyncImageGen    bool
-    AsyncVideoGen    bool
-    // Agent/Workflow 端点
-    AgentEndpoint    string
-    WorkflowEndpoint string
-    // 请求修改器（某些平台需要额外 header 或参数调整）
-    RequestModifier  func(req *http.Request)
-}
-
-// platforms.go — 各平台预设配置
-var PlatformPresets = map[Platform]PlatformConfig{
-    PlatformAlibaba: {
-        BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        Quirks: PlatformQuirks{
-            AsyncImageGen:    true,
-            AsyncVideoGen:    true,
-            AgentEndpoint:    "/apps/{app_id}/completion",
-            WorkflowEndpoint: "/apps/{app_id}/completion",
-        },
-    },
-    PlatformBaidu: {
-        BaseURL: "https://qianfan.baidubce.com/v2",
-        Quirks:  PlatformQuirks{AsyncImageGen: true, AsyncVideoGen: true},
-    },
-    PlatformVolcengine: {
-        BaseURL: "https://ark.cn-beijing.volces.com/api/v3",
-        Quirks:  PlatformQuirks{AsyncVideoGen: true},
-    },
-    PlatformZhipu: {
-        BaseURL: "https://open.bigmodel.cn/api/paas/v4",
-        Quirks:  PlatformQuirks{AsyncImageGen: true, AsyncVideoGen: true},
-    },
-    PlatformMiniMax: {
-        BaseURL: "https://api.minimax.io/v1",
-        Quirks:  PlatformQuirks{AsyncVideoGen: true},
-    },
-}
+// 平台特殊行为通过以下方式处理：
+// 1. Extra 字段透传：req.Extra 中的平台专属字段通过 MarshalJSON 合并到 JSON 顶层
+// 2. Provider 名称判断：如 DashScope qwen3+ 非流式需要 enable_thinking=false
+//    仅当 p.name == "alibaba" 时自动注入
+// 3. 可配置 endpoint 路径：通过 extra.chat_path / extra.responses_path 自定义
 ```
 
-Chat/Embed/Stream 直接走 OpenAI 格式（只改 baseURL）。图像/视频/Agent 等走平台专属适配。
+图像/视频/Agent 等非 Chat 能力待后续 Sprint 实现，届时如果需要平台专属逻辑，
+可以在 OpenAI adapter 中通过 `p.name` 判断分支处理，或在必要时拆出独立 adapter。
 
 ---
 
@@ -2082,69 +2179,52 @@ observability:
 
 ---
 
-## 8. 消息转换层（独立于 Provider）
+## 8. 消息转换层
 
-Shannon 的问题：消息转换逻辑散落在各 provider 中。我们抽出独立的 mapper 层：
+> **实现决策**：不创建独立的 `pkg/mapper/` 包，消息转换逻辑**内联在各 adapter 中**。
+>
+> 原因：每个平台的映射逻辑与其私有 API 类型（如 `anthropicMessage`、`anthropicContentBlock`）强耦合，
+> 独立包会增加不必要的跨包引用和类型导出。实际实现中：
+> - OpenAI adapter: `chat.go` 中的 `convertMessages()` / `convertMessage()` / `convertContentBlock()` / `convertTools()`
+> - Anthropic adapter: `chat.go` 中的 `extractSystemAndConvert()` / `convertContentBlock()` / `convertTools()` / `convertToolChoice()`
+> - Google adapter: 待 Sprint 7 实现
+
+### 8.1 OpenAI 消息转换（chat.go 内联）
 
 ```go
-// pkg/mapper/message.go
-
-type Format string
-const (
-    FormatOpenAI    Format = "openai"
-    FormatAnthropic Format = "anthropic"
-    FormatGemini    Format = "gemini"
-)
-
-// ToAnthropic 将统一 Message 转为 Anthropic 格式
-func ToAnthropic(messages []Message) (system string, converted []AnthropicMessage) {
-    for _, msg := range messages {
-        if msg.Role == RoleSystem {
-            system += msg.Content.String() + "\n"
-            continue
-        }
-        converted = append(converted, AnthropicMessage{
-            Role:    mapRole(msg.Role),
-            Content: convertContent(msg.Content),
-        })
-    }
-    return
-}
-
-// ToGemini 将统一 Message 转为 Gemini 格式
-func ToGemini(messages []Message) (systemInstruction *GeminiContent, contents []GeminiContent) {
-    for _, msg := range messages {
-        if msg.Role == RoleSystem {
-            systemInstruction = &GeminiContent{
-                Parts: []GeminiPart{{Text: msg.Content.String()}},
-            }
-            continue
-        }
-        contents = append(contents, GeminiContent{
-            Role:  geminiRole(msg.Role), // assistant -> model
-            Parts: toParts(msg.Content),
-        })
-    }
-    return
-}
+// 由于内部格式以 OpenAI 为基准，转换几乎是直通（pass-through）：
+// - types.Message → openAIMessage（Role、Content、ToolCalls 直接映射）
+// - types.ContentBlock → openAIContentPart（text / image_url 类型映射）
+// - types.Tool → openAITool（结构一致，直接复制）
+// 唯一的非直通逻辑：
+// - Extra map[string]any 通过自定义 MarshalJSON 合并到 JSON 顶层
+// - max_tokens vs max_completion_tokens 按模型名自动选择
 ```
 
+### 8.2 Anthropic 消息转换（chat.go 内联）
+
 ```go
-// pkg/mapper/tool.go
+// 核心函数：extractSystemAndConvert()
+// 处理与 OpenAI 的所有差异：
+// 1. system role → 抽取到顶层 system 字段
+// 2. tool role → 转为 user role + tool_result content block
+// 3. assistant + tool_calls → 拆分为 text block + tool_use blocks
+// 4. multimodal image_url → image type + source object
+// 5. stop → stop_sequences
+// 6. tool_choice string → object format
+// 7. parameters → input_schema
+```
 
-// ToAnthropicTools 转换 tool 定义格式
-func ToAnthropicTools(tools []Tool) []AnthropicTool {
-    // OpenAI: {type:"function", function:{name, description, parameters}}
-    // Claude: {name, description, input_schema}
-    ...
-}
+### 8.3 Gemini 消息转换（待实现）
 
-// ToGeminiTools 转换 tool 定义格式
-func ToGeminiTools(tools []Tool) []GeminiFunctionDeclaration {
-    // OpenAI: tools[].function.parameters
-    // Gemini: tools[].functionDeclarations[].parameters
-    ...
-}
+```go
+// 待 Sprint 7 实现，关键差异：
+// - messages → contents[].parts[]
+// - role: "assistant" → role: "model"
+// - system → systemInstruction
+// - 所有参数嵌套在 generationConfig 中
+// - tools → functionDeclarations
+// - URL 路径包含模型名: /models/{model}:generateContent
 ```
 
 ---
@@ -2154,54 +2234,54 @@ func ToGeminiTools(tools []Tool) []GeminiFunctionDeclaration {
 ```go
 // pkg/transport/sse.go
 
+// SSEEvent 表示一个 Server-Sent Event
+type SSEEvent struct {
+    Event string // 事件类型（Anthropic 用 content_block_delta / message_stop 等）
+    Data  string // 事件数据
+    ID    string // 事件 ID（可选）
+    Retry int    // 重试间隔（可选）
+}
+
+// IsDone 判断是否为结束事件
+// 兼容 OpenAI 的 [DONE] 和 Anthropic 的 message_stop
+func (e *SSEEvent) IsDone() bool {
+    return e.Data == "[DONE]" || e.Event == "message_stop"
+}
+
 // SSEReader 通用 SSE 流读取器
 type SSEReader struct {
     reader *bufio.Reader
 }
 
-type SSEEvent struct {
-    Event string // 事件类型（Anthropic 用）
-    Data  string // 数据
-}
-
+func NewSSEReader(r io.Reader) *SSEReader { ... }
 func (r *SSEReader) Read() (*SSEEvent, error) { ... }
+func (r *SSEReader) ReadAll() ([]*SSEEvent, error) { ... }
 
-// pkg/mapper/stream.go
-
-// ParseOpenAIStream 解析 OpenAI 格式 SSE -> StreamEvent
-func ParseOpenAIStream(event *SSEEvent) (*StreamEvent, error) {
-    if event.Data == "[DONE]" {
-        return &StreamEvent{Type: "done"}, nil
-    }
-    var chunk openaiStreamChunk
-    json.Unmarshal([]byte(event.Data), &chunk)
-    return &StreamEvent{
-        Type:  "content_delta",
-        Delta: chunk.Choices[0].Delta.Content,
-    }, nil
+// SSEWriter 写入 SSE 事件到 HTTP 响应
+type SSEWriter struct {
+    writer io.Writer
 }
 
-// ParseAnthropicStream 解析 Anthropic 格式 SSE -> StreamEvent
-func ParseAnthropicStream(event *SSEEvent) (*StreamEvent, error) {
-    switch event.Event {
-    case "content_block_delta":
-        var delta anthropicDelta
-        json.Unmarshal([]byte(event.Data), &delta)
-        return &StreamEvent{
-            Type:  "content_delta",
-            Delta: delta.Delta.Text,
-        }, nil
-    case "message_delta":
-        // 包含 usage 和 finish_reason
-        ...
-    case "message_stop":
-        return &StreamEvent{Type: "done"}, nil
-    }
-    return nil, nil // 忽略其他事件
-}
+func NewSSEWriter(w io.Writer) *SSEWriter { ... }
+func (w *SSEWriter) Write(event *SSEEvent) error { ... }
+func (w *SSEWriter) WriteData(data string) error { ... }
+func (w *SSEWriter) WriteDone() error { ... }
+```
 
-// ParseGeminiStream 解析 Gemini 格式 SSE -> StreamEvent
-func ParseGeminiStream(event *SSEEvent) (*StreamEvent, error) { ... }
+> **实现决策**：流式事件解析（OpenAI chunk → StreamEvent、Anthropic delta → StreamEvent）
+> 内联在各 adapter 的 `stream.go` 中，而非独立的 `pkg/mapper/stream.go`。
+> `SSEReader` / `SSEWriter` 作为通用工具保留在 `transport` 包中。
+
+```go
+// pkg/adapter/openai/stream.go — OpenAI 流式解析（内联在 adapter 中）
+// 使用 SSEReader 读取 SSE 事件，解析 JSON chunk 为 StreamEvent
+
+// pkg/adapter/anthropic/stream.go — Anthropic 流式解析（内联在 adapter 中）
+// 处理 Anthropic 独有的 SSE 事件类型：
+//   content_block_delta → StreamEventContentDelta
+//   message_delta       → StreamEventUsage + FinishReason
+//   message_stop        → StreamEventDone
+//   content_block_start → tool_call 开始（type=="tool_use" 时）
 ```
 
 ---
@@ -2237,7 +2317,7 @@ func (a *AnthropicAuth) Apply(req *http.Request) error {
     return nil
 }
 
-// GoogleAuth — API Key
+// GoogleAuth — API Key as query parameter
 type GoogleAuth struct {
     APIKey string
 }
@@ -2248,35 +2328,108 @@ func (a *GoogleAuth) Apply(req *http.Request) error {
     return nil
 }
 
-// DynamicAuth 动态凭证支持（借鉴 TensorZero BYOK）
+// NoAuth — 无认证（用于不需要 key 的场景）
+type NoAuth struct{}
+func (a *NoAuth) Apply(req *http.Request) error { return nil }
+
+// NewAuthStrategy 工厂函数，根据 provider 名称创建合适的认证策略
+func NewAuthStrategy(provider, apiKey string) AuthStrategy {
+    switch provider {
+    case "anthropic":
+        return &AnthropicAuth{APIKey: apiKey}
+    case "google":
+        return &GoogleAuth{APIKey: apiKey}
+    default:
+        return &BearerAuth{APIKey: apiKey}
+    }
+}
+
+// DynamicAuth 动态凭证支持（BYOK）
 // 实现 AuthStrategy 接口，构造时注入 credentials
-// 如果 credentials 包含 api_key，优先使用；否则 fallback 到静态配置
+// 优先使用动态凭证，fallback 到静态配置
 type DynamicAuth struct {
     StaticAuth  AuthStrategy      // 静态配置的认证策略
     Credentials map[string]string // 来自 ChatRequest.Credentials
 }
 
-// Apply 实现 AuthStrategy 接口
 func (a *DynamicAuth) Apply(req *http.Request) error {
-    // 优先使用动态凭证
+    // 优先使用动态 api_key（Bearer 方式）
     if apiKey, ok := a.Credentials["api_key"]; ok && apiKey != "" {
         req.Header.Set("Authorization", "Bearer "+apiKey)
         return nil
     }
+    // 支持 Anthropic 格式的动态凭证（x_api_key）
+    if apiKey, ok := a.Credentials["x_api_key"]; ok && apiKey != "" {
+        req.Header.Set("x-api-key", apiKey)
+        req.Header.Set("anthropic-version", "2023-06-01")
+        return nil
+    }
     // Fallback 到静态配置
-    return a.StaticAuth.Apply(req)
+    if a.StaticAuth != nil {
+        return a.StaticAuth.Apply(req)
+    }
+    return nil
 }
 
-// Provider 调用时的凭证解析
-func (p *BaseProvider) resolveAuth(req *types.ChatRequest) AuthStrategy {
-    if len(req.Credentials) > 0 {
-        return &DynamicAuth{StaticAuth: p.defaultAuth, Credentials: req.Credentials}
+// WithDynamicCredentials 包装函数，简化 BYOK 凭证注入
+func WithDynamicCredentials(staticAuth AuthStrategy, credentials map[string]string) AuthStrategy {
+    if len(credentials) == 0 {
+        return staticAuth
     }
-    return p.defaultAuth
+    return &DynamicAuth{StaticAuth: staticAuth, Credentials: credentials}
 }
 ```
 
-> **BYOK（Bring Your Own Key）场景**：企业客户可在请求中携带自己的 API Key，Gateway 使用客户提供的凭证调用上游 Provider。适用于：客户有自己的平台账号和计费、客户需要使用特定区域的 endpoint 等。
+```go
+// pkg/transport/http_client.go — 统一 HTTP 客户端
+
+type HTTPClient struct {
+    client  *http.Client
+    timeout time.Duration
+}
+
+type HTTPClientConfig struct {
+    Timeout         time.Duration
+    MaxIdleConns    int
+    IdleConnTimeout time.Duration
+    Proxy           string // per-provider proxy 配置
+}
+
+// NewHTTPClient 创建 HTTPClient
+func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient { ... }
+
+// DefaultHTTPClient 使用默认配置（使用环境变量代理）
+func DefaultHTTPClient() *HTTPClient { ... }
+
+// NewHTTPClientWithProxy 快捷方式：仅指定 proxy 配置
+func NewHTTPClientWithProxy(proxy string) *HTTPClient {
+    return NewHTTPClient(HTTPClientConfig{Proxy: proxy})
+}
+
+// resolveProxyFunc 根据 proxy 配置字符串返回对应的代理函数
+//   - "http://host:port" / "socks5://host:port": 使用固定代理
+//   - "none" / "direct": 不使用代理（直连）
+//   - "" (空): 使用系统环境变量 HTTP_PROXY/HTTPS_PROXY
+func resolveProxyFunc(proxy string) func(*http.Request) (*url.URL, error) { ... }
+
+// Do 发送 HTTP 请求
+func (c *HTTPClient) Do(ctx context.Context, req *http.Request) (*http.Response, error) { ... }
+
+// DoJSON 发送 JSON 请求并解码响应（自动错误分类）
+func (c *HTTPClient) DoJSON(ctx context.Context, method, url string, auth AuthStrategy, body any, result any) error { ... }
+
+// DoStream 发送请求并返回响应体（用于 SSE 流式读取）
+func (c *HTTPClient) DoStream(ctx context.Context, method, url string, auth AuthStrategy, body any) (io.ReadCloser, error) { ... }
+
+// parseProviderError 解析 provider 错误响应，自动分类错误码
+func parseProviderError(statusCode int, body []byte) *types.ProviderError { ... }
+```
+
+> **Per-Provider Proxy**：每个 provider 可在 `config.yaml` 中独立配置 `proxy` 字段，
+> 实现海外 API 走代理、国内 API 直连的混合策略。`NewHTTPClientWithProxy()` 在
+> 每个 adapter 的构造函数中被调用，确保每个 provider 使用独立的 HTTP Transport。
+
+> **BYOK（Bring Your Own Key）场景**：企业客户可在请求中携带自己的 API Key，Gateway 使用客户提供的凭证调用上游 Provider。`DynamicAuth` 支持 Bearer（`api_key`）和 Anthropic（`x_api_key`）两种格式的动态凭证。
 
 ### 10.2 多租户与访问控制
 
@@ -2529,46 +2682,123 @@ security:
 
 ## 11. 配置文件设计
 
+> **实现说明**：配置分为两个文件 — `config/config.yaml`（providers + 编排参数）和 `config/models.yaml`（模型目录 + Tier 路由）。
+> `config.Load()` 自动从同目录加载 `models.yaml`。支持 `${VAR_NAME}` 和 `${VAR:-default}` 环境变量替换。
+> API Key 为空的 provider 在启动时自动移除（`pruneUnavailableProviders()`），无需注释配置。
+
+### 11.1 Go 配置结构
+
+```go
+// config/config.go
+
+type Config struct {
+    Server        ServerConfig              `yaml:"server"`
+    Providers     map[string]ProviderConfig `yaml:"providers"`
+    ModelCatalog  []ModelCatalogEntry       `yaml:"model_catalog"`   // 从 models.yaml 加载
+    TierRouting   map[string][]RouteEntry   `yaml:"tier_routing"`    // 从 models.yaml 加载
+    Manager       ManagerConfig             `yaml:"manager"`
+    Security      SecurityConfig            `yaml:"security"`
+    Secret        SecretConfig              `yaml:"secret"`
+    Observability ObservabilityConfig       `yaml:"observability"`
+}
+
+type ProviderConfig struct {
+    BaseURL   string         `yaml:"base_url"`
+    APIKey    string         `yaml:"api_key"`
+    Platform  string         `yaml:"platform,omitempty"`  // 兼容平台标识（alibaba, volcengine 等）
+    RateLimit int            `yaml:"rate_limit"`
+    Timeout   time.Duration  `yaml:"timeout,omitempty"`
+
+    // Per-provider HTTP proxy 配置：
+    //   "http://host:port" / "socks5://host:port": 使用指定代理
+    //   "none" / "direct": 不使用代理，直连
+    //   "" (空/不写): 使用系统环境变量 HTTP_PROXY/HTTPS_PROXY
+    Proxy string `yaml:"proxy,omitempty"`
+
+    // 厂商自定义配置（不同 provider 有不同的 extra 字段）
+    Extra map[string]any `yaml:"extra,omitempty"`
+}
+
+// GetExtra 从 Extra 中取 string 值，支持默认值
+func (c ProviderConfig) GetExtra(key, defaultVal string) string { ... }
+
+// GetExtraInt 从 Extra 中取 int 值（兼容 YAML float64），支持默认值
+func (c ProviderConfig) GetExtraInt(key string, defaultVal int) int { ... }
+```
+
+### 11.2 配置加载流程
+
+```go
+func Load(path string) (*Config, error) {
+    // 1. 读取 config.yaml
+    // 2. expandEnvVars(): 替换 ${VAR_NAME} 和 ${VAR:-default}
+    // 3. YAML 解析
+    // 4. loadModelsCatalog(): 从同目录的 models.yaml 加载模型目录和 Tier 路由
+    // 5. pruneUnavailableProviders(): 移除 API Key 为空的 provider，
+    //    同时过滤相关的 model_catalog 和 tier_routing 条目
+    // 6. applyDefaults(): 填充缺省值
+    // 7. Validate(): 校验一致性（provider 引用、model 引用等）
+}
+```
+
+### 11.3 Provider 配置示例
+
 ```yaml
-# config/models.yaml
+# config/config.yaml
+
+server:
+  host: "0.0.0.0"
+  port: 8080
 
 providers:
   openai:
     base_url: "https://api.openai.com/v1"
     api_key: "${OPENAI_API_KEY}"
-    rate_limit: 500  # RPM
+    rate_limit: 500
+    # proxy: ""                             # 默认使用环境变量代理（适合海外 API）
+    # extra:
+    #   chat_path: "/chat/completions"      # 自定义 endpoint 路径
+    #   responses_path: "/responses"
+    #   models_path: "/models"
 
   anthropic:
-    base_url: "https://api.anthropic.com/v1"
+    base_url: "https://api.anthropic.com"
     api_key: "${ANTHROPIC_API_KEY}"
     rate_limit: 200
+    # proxy: ""                              # 海外 API 需要代理
+    extra:
+      anthropic_version: "2023-06-01"        # API 版本
+      default_max_tokens: 4096               # 默认 max_tokens
+      # api_format: "openai"                 # 设为 "openai" 时走 OpenAI 兼容协议
 
   alibaba:
     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key: "${DASHSCOPE_API_KEY}"
-    platform: "alibaba"  # 标记为兼容平台
+    platform: "alibaba"
     rate_limit: 300
+    proxy: "none"                            # 国内平台，直连
 
   volcengine:
     base_url: "https://ark.cn-beijing.volces.com/api/v3"
     api_key: "${ARK_API_KEY}"
     platform: "volcengine"
     rate_limit: 300
+    proxy: "none"
 
-  zhipu:
-    base_url: "https://open.bigmodel.cn/api/paas/v4"
-    api_key: "${ZHIPU_API_KEY}"
-    platform: "zhipu"
-    rate_limit: 200
+  deepseek:
+    base_url: "https://api.deepseek.com/v1"
+    api_key: "${DEEPSEEK_API_KEY}"
+    platform: "deepseek"
+    rate_limit: 300
+    proxy: "none"
+```
 
-  minimax:
-    base_url: "https://api.minimax.io/v1"
-    api_key: "${MINIMAX_API_KEY}"
-    platform: "minimax"
-    rate_limit: 200
+### 11.4 模型目录 + Tier 路由
+
+```yaml
+# config/models.yaml（独立文件，由 Load() 自动加载）
 
 model_catalog:
-  # OpenAI 模型
   - id: "gpt-4o"
     provider: "openai"
     tier: "large"
@@ -2587,29 +2817,6 @@ model_catalog:
     output_price: 0.0006
     capabilities: { chat: true, vision: true, tools: true, json_mode: true, streaming: true }
 
-  - id: "text-embedding-3-small"
-    provider: "openai"
-    tier: "small"
-    capabilities: { embedding: true }
-
-  # Anthropic 模型
-  - id: "claude-sonnet-4-5-20250929"
-    provider: "anthropic"
-    tier: "large"
-    context_window: 200000
-    max_output: 8192
-    input_price: 0.003
-    output_price: 0.015
-    capabilities: { chat: true, vision: true, tools: true, json_mode: true, streaming: true, reasoning: true }
-
-  # 阿里百炼模型
-  - id: "qwen-max"
-    provider: "alibaba"
-    tier: "large"
-    context_window: 32768
-    max_output: 8192
-    capabilities: { chat: true, vision: true, tools: true, streaming: true }
-
   - id: "qwen-turbo"
     provider: "alibaba"
     tier: "small"
@@ -2619,7 +2826,6 @@ model_catalog:
 
   # 更多模型...
 
-# 分层路由
 tier_routing:
   small:
     - { provider: "alibaba",    model: "qwen-turbo",   priority: 1 }
@@ -2629,76 +2835,86 @@ tier_routing:
     - { provider: "volcengine", model: "doubao-pro",   priority: 2 }
   large:
     - { provider: "openai",     model: "gpt-4o",       priority: 1 }
-    - { provider: "anthropic",  model: "claude-sonnet-4-5-20250929", priority: 2 }
     - { provider: "alibaba",    model: "qwen-max",     priority: 3 }
+```
 
-# 编排配置
+### 11.5 编排配置
+
+```yaml
+# config/config.yaml（续）
+
 manager:
   cache:
     enabled: true
     memory:
       max_size: 1000     # LRU 容量
-      ttl: "5m"          # 内存缓存 TTL
+      ttl: 5m            # 内存缓存 TTL
     redis:
       enabled: false     # 可选，启用后为 DualCache 模式
-      url: "${REDIS_URL}"
-      ttl: "1h"          # Redis 缓存 TTL
+      url: "${REDIS_URL:-redis://localhost:6379}"
+      ttl: 1h
 
   circuit_breaker:
     failure_threshold: 5
-    recovery_timeout: "30s"
+    recovery_timeout: 30s
 
   hedged_request:
     enabled: true
-    delay: "500ms"
+    delay: 500ms
 
   token_safety_margin: 256
 
-  # 重试策略（NEW）
   retry:
-    max_attempts: 3              # 最大重试次数（含首次）
-    initial_delay: "100ms"       # 初始退避间隔
-    max_delay: "5s"              # 最大退避间隔
-    backoff_factor: 2.0          # 退避倍数
-    retry_budget: 0.1            # 重试预算：重试请求占总请求的比例上限
-    deadline: "30s"              # 全局时间预算（所有重试共享）
-    budget_window: "60s"         # 重试预算滑动窗口
+    max_attempts: 3
+    initial_delay: 100ms
+    max_delay: 5s
+    backoff_factor: 2.0
+    retry_budget: 0.1
+    deadline: 30s
+    budget_window: 60s
 
-  # Per-Model 冷却（NEW）
   cooldown:
     enabled: true
-    backoff_sequence: ["10s", "30s", "60s", "120s", "300s"]  # 退避序列
-    max_failures: 5              # 触发冷却的连续失败次数
+    backoff_sequence: [10s, 30s, 60s, 120s, 300s]
+    max_failures: 5
 
-  # 配额管理（NEW）
   quota:
-    enabled: true
-    store: "database"            # database / redis / memory
-    preconsumed_ttl: "10m"       # 预扣记录 TTL（超时自动退回）
+    enabled: false
+    store: "memory"
+    preconsumed_ttl: 10m
 
-  # 异步消费写入（NEW）
   spend_writer:
-    enabled: true
-    batch_size: 100              # 批量写入阈值
-    flush_interval: "5s"         # 定时刷新间隔
-    queue_size: 10000            # 队列容量
-    wal_path: "/var/lib/llm-gateway/spend.wal"  # WAL 文件路径
+    enabled: false
+    batch_size: 100
+    flush_interval: 5s
+    queue_size: 10000
+    wal_path: "/var/lib/llm-gateway/spend.wal"
 
-  # 费用计算（NEW）
   cost_calculator:
-    pricing_file: "config/pricing.yaml"  # 模型定价配置
-    fallback_price:              # 未知模型兜底价格
+    pricing_file: "config/models.yaml"
+    fallback_price:
       input_per_1k: 0.001
       output_per_1k: 0.002
 
-  # 超时配置
   timeout:
-    connect: "5s"
-    first_token: "30s"           # 首 token 超时
-    total_non_stream: "120s"     # 非流式总超时
-    total_stream: "300s"         # 流式总超时
-    idle_between_chunks: "30s"   # 流式块间隔超时
+    connect: 5s
+    first_token: 30s
+    total_non_stream: 120s
+    total_stream: 300s
+    idle_between_chunks: 30s
 ```
+
+### 11.6 Extra 字段参考
+
+| 字段 | 适用 provider | 默认值 | 说明 |
+|------|-------------|--------|------|
+| `chat_path` | OpenAI 兼容 | `/chat/completions` | Chat 接口路径 |
+| `responses_path` | OpenAI 兼容 | `/responses` | Responses 接口路径 |
+| `models_path` | OpenAI 兼容 | `/models` | 模型列表接口路径 |
+| `api_format` | Anthropic | `anthropic` | 设为 `"openai"` 时走 OpenAI 兼容协议 |
+| `anthropic_version` | Anthropic 原生 | `2023-06-01` | API 版本 header |
+| `default_max_tokens` | Anthropic 原生 | `4096` | 默认 max_tokens |
+| `messages_path` | Anthropic 原生 | `/v1/messages` | Messages 接口路径 |
 
 ---
 
@@ -2707,19 +2923,24 @@ manager:
 对外暴露 **OpenAI 兼容的 HTTP API**，让上层业务可以像调用 OpenAI 一样调用我们的服务，只需增加 `provider` 和 `model_tier` 扩展字段：
 
 ```
-POST /v1/chat/completions      -> handler.Chat        # 对话（兼容 OpenAI 格式）
-POST /v1/embeddings            -> handler.Embedding    # 向量化
-POST /v1/images/generations    -> handler.ImageGen     # 图像生成
-POST /v1/audio/speech          -> handler.TTS          # 语音合成
-POST /v1/audio/transcriptions  -> handler.STT          # 语音识别
-POST /v1/videos                -> handler.VideoGen     # 视频生成
-POST /v1/agent/invoke          -> handler.Agent        # Agent 调用
-POST /v1/workflow/run           -> handler.Workflow     # Workflow 调用
+# 已实现
+POST /v1/chat/completions      -> handler.Chat          # 对话（兼容 OpenAI 格式）
+POST /v1/responses             -> handler.Responses      # Responses API（推理模型优化）
+GET  /v1/models                -> router.handleListModels # 模型列表（OpenAI 格式）
+GET  /health                   -> router.handleHealth     # 健康检查
+GET  /healthz                  -> router.handleHealth     # 健康检查（K8s 探针）
 
-GET  /v1/models                -> handler.ListModels   # 模型列表
-GET  /v1/providers             -> handler.ListProviders # Provider 状态
-GET  /v1/tasks/{id}            -> handler.GetTask      # 异步任务查询
+# 待实现（后续 Sprint）
+POST /v1/embeddings            -> handler.Embedding      # 向量化（Sprint 6）
+POST /v1/images/generations    -> handler.ImageGen       # 图像生成（Sprint 7）
+POST /v1/audio/speech          -> handler.TTS            # 语音合成（Sprint 7）
+POST /v1/audio/transcriptions  -> handler.STT            # 语音识别（Sprint 7）
+GET  /v1/tasks/{id}            -> handler.GetTask        # 异步任务查询（Sprint 7）
 ```
+
+路由注册使用标准库 `http.ServeMux`，`api.Router` 实现 `http.Handler` 接口，
+自带请求日志中间件（method/path/status/duration/remote）。`responseWriter` 包装
+支持 `http.Flusher`，确保 SSE 流式响应正常刷新。
 
 扩展字段（通过请求体传递）：
 ```json
@@ -2744,69 +2965,38 @@ GET  /v1/tasks/{id}            -> handler.GetTask      # 异步任务查询
 ```go
 // pkg/gateway/client.go — SDK 模式入口
 
-// Client SDK 核心入口
 type Client struct {
-    manager      *manager.Manager
-    hookRegistry *hook.Registry
-    config       *Config
+    manager *manager.Manager
+    logger  *slog.Logger
+    opts    *clientOptions
 }
 
-// New 创建 SDK Client
+// New 从配置文件创建 SDK Client
 func New(cfgPath string, opts ...Option) (*Client, error) {
     cfg, err := config.Load(cfgPath)
     if err != nil {
-        return nil, fmt.Errorf("load config: %w", err)
+        return nil, err
     }
-
-    // 1. 解析选项
-    options := defaultOptions()
-    for _, opt := range opts {
-        opt(&options)
-    }
-
-    // 2. 应用选项到配置（覆盖 YAML 中的值）
-    if options.logger != nil {
-        slog.SetDefault(options.logger)
-    }
-    cfg.Manager.Cache.Enabled = options.cacheEnabled
-
-    // 3. 初始化 Hook Registry，注册用户指定的 Hook
-    hookReg := hook.NewRegistry()
-    for _, h := range options.hooks {
-        hookReg.Register(h)
-    }
-
-    // 4. 初始化 Manager（将选项生效后的 cfg 和 hookReg 传入）
-    mgr, err := manager.New(cfg, hookReg)
-    if err != nil {
-        return nil, fmt.Errorf("init manager: %w", err)
-    }
-
-    return &Client{
-        manager:      mgr,
-        hookRegistry: hookReg,
-    }, nil
+    return NewWithConfig(cfg, opts...)
 }
 
-// Chat 对话（非流式）
-func (c *Client) Chat(ctx context.Context, req *types.ChatRequest) (*types.ChatResponse, error) {
-    return c.manager.Chat(ctx, req)
-}
+// NewWithConfig 从 Config 结构体创建 SDK Client
+func NewWithConfig(cfg *config.Config, opts ...Option) (*Client, error) { ... }
 
-// ChatStream 对话（流式）
-func (c *Client) ChatStream(ctx context.Context, req *types.ChatRequest) (<-chan *types.StreamEvent, error) {
-    return c.manager.ChatStream(ctx, req)
-}
+// --- 核心方法 ---
 
-// Embedding 向量化
-func (c *Client) Embedding(ctx context.Context, req *types.EmbeddingRequest) (*types.EmbeddingResponse, error) {
-    return c.manager.Embed(ctx, req)
-}
+func (c *Client) Chat(ctx context.Context, req *types.ChatRequest) (*types.ChatResponse, error) { ... }
+func (c *Client) ChatStream(ctx context.Context, req *types.ChatRequest) (<-chan types.StreamEvent, error) { ... }
 
-// Close 关闭客户端，释放资源
-func (c *Client) Close() error {
-    return c.manager.Close()
-}
+// Responses API（OpenAI 推理模型优化接口）
+func (c *Client) Responses(ctx context.Context, req *types.ResponsesRequest) (*types.ResponsesResponse, error) { ... }
+func (c *Client) ResponsesStream(ctx context.Context, req *types.ResponsesRequest) (<-chan types.ResponsesStreamEvent, error) { ... }
+
+// 查询方法
+func (c *Client) ListModels() []types.ModelConfig { ... }
+func (c *Client) ListProviders() []types.ProviderStatus { ... }
+
+func (c *Client) Close() error { ... }
 ```
 
 ```go
@@ -2814,38 +3004,14 @@ func (c *Client) Close() error {
 
 type Option func(*clientOptions)
 
-func defaultOptions() clientOptions {
-    return clientOptions{
-        cacheEnabled: true,  // 默认启用缓存
-    }
-}
-
 type clientOptions struct {
     cacheEnabled bool
-    hooks        []hook.Hook
     logger       *slog.Logger
 }
 
-// WithCache 启用/禁用缓存
-func WithCache(enabled bool) Option {
-    return func(o *clientOptions) {
-        o.cacheEnabled = enabled
-    }
-}
-
-// WithHook 注册自定义 Hook
-func WithHook(h hook.Hook) Option {
-    return func(o *clientOptions) {
-        o.hooks = append(o.hooks, h)
-    }
-}
-
-// WithLogger 设置日志器
-func WithLogger(l *slog.Logger) Option {
-    return func(o *clientOptions) {
-        o.logger = l
-    }
-}
+func WithCache(enabled bool) Option { ... }
+func WithLogger(l *slog.Logger) Option { ... }
+// WithHook 待 Sprint 5 Hook 系统实现后添加
 ```
 
 **SDK 使用示例**：
@@ -2857,60 +3023,73 @@ import (
     "context"
     "fmt"
 
-    "github.com/company/llm-gateway/pkg/gateway"
-    "github.com/company/llm-gateway/pkg/types"
+    "github.com/lex1ng/llm-gateway/pkg/gateway"
+    "github.com/lex1ng/llm-gateway/pkg/types"
 )
 
 func main() {
-    // 1. 创建 SDK Client
-    client, err := gateway.New("config/models.yaml",
-        gateway.WithCache(true),
-        gateway.WithLogger(slog.Default()),
-    )
+    client, err := gateway.New("config/config.yaml")
     if err != nil {
         panic(err)
     }
     defer client.Close()
 
-    // 2. 发起对话请求
+    // 非流式对话
     resp, err := client.Chat(context.Background(), &types.ChatRequest{
-        Model: "gpt-4o",
+        Model: "gpt-4o-mini",
         Messages: []types.Message{
-            {Role: types.RoleUser, Content: types.NewTextContent("Hello, who are you?")},
+            {Role: types.RoleUser, Content: types.NewTextContent("Hello!")},
         },
     })
-    if err != nil {
-        panic(err)
+    fmt.Println(resp.Content)
+
+    // 流式对话
+    stream, _ := client.ChatStream(ctx, &types.ChatRequest{
+        Model: "qwen-turbo", Stream: true,
+        Messages: []types.Message{
+            {Role: types.RoleUser, Content: types.NewTextContent("写一首诗")},
+        },
+    })
+    for event := range stream {
+        if event.Type == types.StreamEventContentDelta {
+            fmt.Print(event.Delta)
+        }
     }
 
-    fmt.Println(resp.Content)
+    // Responses API
+    respAPI, _ := client.Responses(ctx, &types.ResponsesRequest{
+        Model: "gpt-4o",
+        Input: "What is 2+2?",
+    })
+    fmt.Println(respAPI.OutputText)
 }
 ```
 
 **HTTP 服务与 SDK 的关系**：
 
 `cmd/server/main.go` 作为薄壳，仅做以下工作：
-1. 加载配置
-2. `gateway.New(cfg)` 创建 SDK Client
-3. 将 Client 方法包装为 HTTP Handler
-4. 启动 HTTP 服务
+1. 解析命令行参数（`--config`、`--env`）
+2. 加载 `.env` 文件（可选）
+3. `gateway.New(cfg)` 创建 SDK Client
+4. `api.NewRouter(client)` 将 Client 方法包装为 HTTP Handler
+5. 启动 HTTP 服务
 
 ```go
-// cmd/server/main.go — 薄壳示例
+// cmd/server/main.go — 薄壳
 
 func main() {
-    // 1. 创建 SDK Client
-    client, err := gateway.New("config/models.yaml")
+    client, err := gateway.New(configPath)
     if err != nil {
         log.Fatal(err)
     }
     defer client.Close()
 
-    // 2. 包装为 HTTP Handler
-    handler := api.NewHandler(client)
-
-    // 3. 启动 HTTP 服务
-    http.ListenAndServe(":8080", handler)
+    router := api.NewRouter(client)
+    server := &http.Server{
+        Addr:    fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
+        Handler: router,
+    }
+    server.ListenAndServe()
 }
 ```
 
@@ -2928,7 +3107,7 @@ func main() {
 | 1.4 | Provider 接口 + Registry | `pkg/provider/` |
 | 1.5 | OpenAI 适配器：Chat + Stream | `pkg/adapter/openai/` |
 | 1.6 | Anthropic 适配器：Chat + Stream + Mapper | `pkg/adapter/anthropic/` |
-| 1.7 | OpenAI Compatible 适配器（阿里/火山/智谱/百度/MiniMax） | `pkg/adapter/compatible/` |
+| 1.7 | OpenAI Compatible 适配器（阿里/火山/智谱/百度/MiniMax） | `pkg/adapter/openai/`（复用 `NewWithName()`） |
 | 1.8 | Manager 编排层：路由、熔断器、限流 | `pkg/manager/` |
 | 1.9 | 对外 API：`/v1/chat/completions` Handler | `api/` |
 | 1.10 | 集成测试：各平台 Chat + Stream 全通 | `tests/` |
@@ -2942,7 +3121,7 @@ func main() {
 | 步骤 | 内容 | 产出 |
 |------|------|------|
 | 2.1 | Tool 类型定义：Tool, ToolCall, ToolResult | `pkg/types/tool.go` |
-| 2.2 | Tool Mapper：OpenAI ↔ Anthropic ↔ Gemini 格式互转 | `pkg/mapper/tool.go` |
+| 2.2 | Tool Mapper：OpenAI ↔ Anthropic ↔ Gemini 格式互转 | 各 `adapter/` 内联 |
 | 2.3 | 各适配器支持 tools 参数和 tool_calls 响应 | 各 `adapter/` |
 | 2.4 | Embedding 接口 + OpenAI/Compatible 实现 | `EmbeddingProvider` |
 | 2.5 | Google Embeddings 适配（`embedContent` 格式） | `adapter/google/embedding.go` |
@@ -2959,7 +3138,7 @@ func main() {
 |------|------|------|
 | 3.1 | Agent/Workflow 请求/响应类型定义 | `pkg/types/` |
 | 3.2 | AgentProvider / WorkflowProvider 接口 | `pkg/provider/interface.go` |
-| 3.3 | 阿里百炼 Agent/Workflow 适配（应用调用 API） | `adapter/compatible/agent.go` |
+| 3.3 | 阿里百炼 Agent/Workflow 适配（应用调用 API） | `adapter/openai/` 或独立 adapter |
 | 3.4 | 其他平台 Agent 适配（按需） | 各 `adapter/` |
 | 3.5 | 对外 API：`/v1/agent/invoke`, `/v1/workflow/run` | `api/handler/` |
 
@@ -3001,21 +3180,22 @@ func main() {
 |------|------|------|
 | 内部数据格式 | OpenAI 格式 | 事实标准，6/8 平台兼容 |
 | Provider 架构 | Interface 组合 + 能力分桶注册 | 能力分离，注册期强校验，运行时零类型断言 |
-| 国内平台策略 | 共用 Compatible 适配器 + 基础兼容能力 | 避免重复代码，差异用 Quirks 处理（非差异化优势） |
-| 消息转换 | 独立 Mapper 层 | 可复用，不散落在 provider 中 |
+| 国内平台策略 | 复用 OpenAI adapter + `NewWithName()` | 避免重复代码，Chat/Stream 完全一致，仅 baseURL 不同 |
+| 消息转换 | 内联在各 adapter 中（非独立 Mapper 层） | 映射逻辑与私有 API 类型强耦合，独立包增加不必要复杂度 |
 | 流式接口 | 统一 `<-chan StreamEvent` + 中途失败策略 | 一套接口 + 可配置的 failover 策略 |
 | 异步任务 | 统一 Submit + Poll 模型 | 覆盖图像/视频所有异步场景 |
 | 缓存安全 | 借鉴 Shannon 全套检查 | 不缓存截断/过滤/空响应 |
 | 可靠性 | 熔断 + 对冲 + 重试矩阵 + 超时分级 + 幂等键 | 分层容错，防雪崩 + 防重复 |
 | 可观测性 | OpenTelemetry + Prometheus + SLO | 全链路 trace + 指标 + 告警闭环 |
 | 安全 | 多租户 RBAC + KMS 密钥 + PII 脱敏 + 审计日志 | 企业级合规要求 |
-| HTTP 框架 | 标准库 `net/http` 或 chi | 轻量，不过度引入依赖 |
-| 对外 API | OpenAI 兼容格式 | 上层业务零成本切换 |
+| HTTP 框架 | 标准库 `net/http`（`http.ServeMux`） | 轻量，Go 1.22+ 的 ServeMux 已支持方法匹配 |
+| 对外 API | OpenAI 兼容格式 + Responses API | 上层业务零成本切换，推理模型有更优接口 |
 | **SDK 模式** | `pkg/gateway` 作为 library 入口 | Go 项目可直接 import，无需 HTTP 开销 |
 | **Hook 系统** | 生命周期回调接口 | 借鉴 LiteLLM CustomLogger，支持自定义监控/审计/过滤 |
 | **缓存架构** | DualCache (Memory+Redis) | 借鉴 LiteLLM，本地低延迟 + 跨实例共享 |
 | **配额管理** | 预扣+结算 | 借鉴 New-API，防止并发超额 |
 | **动态凭证** | Request-level BYOK | 借鉴 TensorZero，支持客户自带 Key |
+| **Per-Provider Proxy** | 每个 provider 独立配置 proxy | 海外走代理、国内直连的混合策略 |
 | **错误处理** | 四级错误分类 (Retry/RotateKey/Fallback/Abort) | 借鉴 LLM-API-Key-Proxy，精确区分重试/轮换/降级/中止 |
 | **冷却粒度** | Provider+Key+Model | 借鉴 LLM-API-Key-Proxy，细粒度冷却避免误伤 |
 | **Deadline 驱动** | 全局时间预算贯穿生命周期 | 借鉴 LLM-API-Key-Proxy，所有重试共享 deadline |
