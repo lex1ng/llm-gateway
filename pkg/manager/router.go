@@ -23,16 +23,18 @@ func NewRouter(registry *provider.Registry, cfg *config.Config) *Router {
 // SelectChat selects a ChatProvider and model for the given request.
 // Returns the provider, the model ID to use, and any error.
 //
-// Priority order (per design §7.2):
-//  1. Provider explicitly specified → use that provider
-//  2. Model explicitly specified → reverse-lookup provider
-//  3. Tier routing (default TierMedium if not specified)
+// Routing priority:
+//  1. Provider + Model → forward model to that provider (passthrough)
+//  2. Provider + Tier → find matching tier model from provider
+//  3. Provider only → use provider's default (first) model
+//  4. Model only → catalog lookup (must be registered in models.yaml)
+//  5. Tier routing (default TierMedium)
 func (r *Router) SelectChat(req *types.ChatRequest) (provider.ChatProvider, string, error) {
-	// Priority 1: Explicit provider
+	// Priority 1-3: Explicit provider
 	if req.Provider != "" {
 		if req.Model != "" {
-			// Provider + Model: verify model belongs to provider, then use it
-			return r.selectByModel(req.Model)
+			// Provider + Model: forward model as-is to provider (passthrough)
+			return r.selectByProviderAndModel(req.Provider, req.Model)
 		}
 		if req.ModelTier != "" {
 			// Provider + Tier: find matching tier model from provider
@@ -42,12 +44,12 @@ func (r *Router) SelectChat(req *types.ChatRequest) (provider.ChatProvider, stri
 		return r.selectByProvider(req.Provider)
 	}
 
-	// Priority 2: Explicit model → reverse-lookup provider
+	// Priority 4: Model only → catalog lookup (no prefix guessing)
 	if req.Model != "" {
 		return r.selectByModel(req.Model)
 	}
 
-	// Priority 3: Tier routing (default to TierMedium)
+	// Priority 5: Tier routing (default to TierMedium)
 	tier := req.ModelTier
 	if tier == "" {
 		tier = types.TierMedium
@@ -55,37 +57,33 @@ func (r *Router) SelectChat(req *types.ChatRequest) (provider.ChatProvider, stri
 	return r.selectByTier(tier)
 }
 
-// selectByModel finds the provider for a specific model.
-// First tries the model catalog, then falls back to prefix-based passthrough.
+// selectByModel finds the provider for a model registered in the catalog.
+// Does NOT do prefix guessing — model must be explicitly registered in models.yaml.
 func (r *Router) selectByModel(modelID string) (provider.ChatProvider, string, error) {
-	// 1. Try catalog lookup (registered models with full metadata)
 	cp, ok := r.registry.GetChatProviderByModel(modelID)
 	if ok {
 		return cp, modelID, nil
 	}
 
-	// 2. Fallback: prefix-based passthrough routing
-	providerName := matchProviderByPrefix(modelID)
-	if providerName != "" {
-		cp, ok := r.registry.GetChatProvider(providerName)
-		if ok {
-			// Passthrough: forward the model name as-is to upstream provider
-			return cp, modelID, nil
-		}
-		// Provider matched by prefix but not registered (no API key or no adapter)
+	return nil, "", &types.ProviderError{
+		Code:       types.ErrModelNotFound,
+		Message:    "model not found in catalog: " + modelID + " (hint: specify \"provider\" field to use unlisted models)",
+		StatusCode: 404,
+	}
+}
+
+// selectByProviderAndModel forwards the model as-is to the specified provider (passthrough).
+// The model does NOT need to be in the catalog.
+func (r *Router) selectByProviderAndModel(providerName, modelID string) (provider.ChatProvider, string, error) {
+	cp, ok := r.registry.GetChatProvider(providerName)
+	if !ok {
 		return nil, "", &types.ProviderError{
 			Code:       types.ErrProviderNotFound,
-			Message:    "provider not available: " + providerName + " (model: " + modelID + ")",
+			Message:    "provider not found: " + providerName,
 			StatusCode: 404,
 		}
 	}
-
-	// No match in catalog or prefix rules
-	return nil, "", &types.ProviderError{
-		Code:       types.ErrModelNotFound,
-		Message:    "model not found: " + modelID,
-		StatusCode: 404,
-	}
+	return cp, modelID, nil
 }
 
 // selectByProvider selects the first available model from a provider.
@@ -167,4 +165,62 @@ func (r *Router) selectByTier(tier types.ModelTier) (provider.ChatProvider, stri
 		Message:    "no available providers for tier: " + string(tier),
 		StatusCode: 404,
 	}
+}
+
+// SelectResponses selects a ResponsesProvider and model for the given request.
+func (r *Router) SelectResponses(req *types.ResponsesRequest) (provider.ResponsesProvider, string, error) {
+	// Priority 1: Explicit provider
+	if req.Provider != "" {
+		return r.selectResponsesByProvider(req.Provider, req.Model)
+	}
+
+	// Priority 2: Explicit model → catalog lookup only
+	if req.Model != "" {
+		return r.selectResponsesByModel(req.Model)
+	}
+
+	// Default: use OpenAI (Responses API is OpenAI-specific)
+	return r.selectResponsesByProvider("openai", "")
+}
+
+// selectResponsesByModel finds a ResponsesProvider for a model in the catalog.
+func (r *Router) selectResponsesByModel(modelID string) (provider.ResponsesProvider, string, error) {
+	rp, ok := r.registry.GetResponsesProviderByModel(modelID)
+	if ok {
+		return rp, modelID, nil
+	}
+
+	return nil, "", &types.ProviderError{
+		Code:       types.ErrModelNotFound,
+		Message:    "model not found in catalog: " + modelID + " (hint: specify \"provider\" field to use unlisted models)",
+		StatusCode: 404,
+	}
+}
+
+// selectResponsesByProvider selects a ResponsesProvider by name.
+func (r *Router) selectResponsesByProvider(providerName, modelID string) (provider.ResponsesProvider, string, error) {
+	rp, ok := r.registry.GetResponsesProvider(providerName)
+	if !ok {
+		return nil, "", &types.ProviderError{
+			Code:       types.ErrProviderNotFound,
+			Message:    "provider does not support Responses API: " + providerName,
+			StatusCode: 400,
+		}
+	}
+
+	if modelID != "" {
+		return rp, modelID, nil
+	}
+
+	// Get first model from provider
+	models := rp.Models()
+	if len(models) == 0 {
+		return nil, "", &types.ProviderError{
+			Code:       types.ErrModelNotFound,
+			Message:    "no models available for provider: " + providerName,
+			StatusCode: 404,
+		}
+	}
+
+	return rp, models[0].ModelID, nil
 }
