@@ -26,10 +26,40 @@ providers:
     platform: "alibaba"
     rate_limit: 300
 
-  # volcengine:
-  #   base_url: "https://ark.cn-beijing.volces.com/api/v3"
-  #   api_key: "${ARK_API_KEY}"
-  #   platform: "volcengine"
+  volcengine:
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    api_key: "${ARK_API_KEY}"
+    platform: "volcengine"
+    rate_limit: 300
+
+  zhipu:
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    api_key: "${ZHIPU_API_KEY}"
+    platform: "zhipu"
+    rate_limit: 300
+
+  deepseek:
+    base_url: "https://api.deepseek.com/v1"
+    api_key: "${DEEPSEEK_API_KEY}"
+    platform: "deepseek"
+    rate_limit: 300
+
+  # baidu:
+  #   base_url: "https://qianfan.baidubce.com/v2"
+  #   api_key: "${QIANFAN_API_KEY}"
+  #   platform: "baidu"
+  #   rate_limit: 300
+
+  # minimax:
+  #   base_url: "https://api.minimax.io/v1"
+  #   api_key: "${MINIMAX_API_KEY}"
+  #   platform: "minimax"
+  #   rate_limit: 300
+
+  # moonshot:
+  #   base_url: "https://api.moonshot.cn/v1"
+  #   api_key: "${MOONSHOT_API_KEY}"
+  #   platform: "moonshot"
   #   rate_limit: 300
 
 # Manager/Orchestration settings

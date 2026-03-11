@@ -46,7 +46,7 @@
 |--------|------|------|
 | Sprint 1 | 地基层：Types + Config + Transport | ✅ 12/12 |
 | Sprint 2 | 第一条垂直切片：OpenAI Chat 全通 | ✅ 16/16 |
-| Sprint 3 | 横向扩展：Anthropic + 国内平台 | ⬜ 0/13 |
+| Sprint 3 | 横向扩展：Anthropic + 国内平台 | 🔨 3/13 |
 | Sprint 4 | 编排层核心能力 | ⬜ 0/18 |
 | Sprint 5 | Hook 系统 + 配额 + 消费记录 | ⬜ 0/13 |
 | Sprint 6 | Tool Calling + Embeddings | ⬜ 0/9 |
@@ -132,9 +132,9 @@
 | 3.2.1 | Anthropic Provider + Mapper | `pkg/adapter/anthropic/provider.go`, `mapper.go` | 3.1.1, 1.4.2 | §6.2 | ⬜ | AnthropicAuth 认证 |
 | 3.2.2 | Anthropic Chat 非流式 | `pkg/adapter/anthropic/chat.go` | 3.2.1 | §6.2 | ⬜ | max_tokens 必填默认 4096 |
 | 3.2.3 | Anthropic Chat 流式 | `pkg/adapter/anthropic/stream.go` | 3.2.1, 3.1.3 | §6.2 | ⬜ | content_block_delta 格式 |
-| 3.3.1 | Compatible Provider + PlatformPresets | `pkg/adapter/compatible/provider.go`, `platforms.go` | 1.4.1 | §6.4 | ⬜ | 5 个国内平台预设配置 |
-| 3.3.2 | Compatible Chat 非流式 | `pkg/adapter/compatible/chat.go` | 3.3.1 | §6.4 | ⬜ | 与 OpenAI 几乎相同 |
-| 3.3.3 | Compatible Chat 流式 | `pkg/adapter/compatible/stream.go` | 3.3.1 | §6.4 | ⬜ | |
+| 3.3.1 | Compatible Provider + PlatformPresets | `pkg/adapter/openai/provider.go` (复用) | 1.4.1 | §6.4 | ✅ | 复用 OpenAI 适配器 + `NewWithName()`，无需独立 adapter |
+| 3.3.2 | Compatible Chat 非流式 | `pkg/adapter/openai/chat.go` (复用) | 3.3.1 | §6.4 | ✅ | OpenAI compatible，直接复用 |
+| 3.3.3 | Compatible Chat 流式 | `pkg/adapter/openai/stream.go` (复用) | 3.3.1 | §6.4 | ✅ | OpenAI compatible，直接复用 |
 | 3.4.1 | Router 增加 Tier 路由 | `pkg/manager/router.go` | 3.2.*, 3.3.* | §7.2 | ⬜ | 按优先级选 provider |
 | 3.4.2 | Router 增加 Fallback 逻辑 | `pkg/manager/router.go` | 3.4.1 | §7.2 | ⬜ | 首选失败自动切换 |
 | 3.5.1 | 阿里百炼集成测试 | `tests/integration/alibaba_test.go` | 3.3.2 | — | ⬜ | 需要 DASHSCOPE_API_KEY |
@@ -306,6 +306,7 @@
 
 | 日期 | 操作者 | 变更 |
 |------|--------|------|
+| 2026-03-11 | Claude | Sprint 3 Compatible Provider (3.3.1-3.3.3) 完成，复用 OpenAI adapter + NewWithName() |
 | 2026-02-23 | Claude | Sprint 2 完成 (2.1.1-2.5.3)，commit `0674a11` |
 | 2026-02-23 | Claude | Sprint 1 完成 (1.3.1-1.4.3)，commit `fcb252f` |
 | 2026-02-22 | Claude (初始创建) | 创建开发清单，全部任务状态为 ⬜ |

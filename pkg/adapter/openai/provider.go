@@ -19,31 +19,44 @@ const (
 
 // OpenAI implements the OpenAI API adapter.
 // Since our internal format is OpenAI-compatible, most requests are nearly pass-through.
+// Domestic platforms (Alibaba, Volcengine, Zhipu, etc.) reuse this adapter
+// with a different name and baseURL.
 type OpenAI struct {
 	client  *transport.HTTPClient
 	auth    transport.AuthStrategy
 	baseURL string
+	name    string
 	models  []types.ModelConfig
 }
 
 // New creates a new OpenAI provider.
 func New(cfg config.ProviderConfig, models []types.ModelConfig) (*OpenAI, error) {
+	return NewWithName(providerName, cfg, models)
+}
+
+// NewWithName creates a new OpenAI-compatible provider with a custom name.
+// Used by domestic platforms that implement the OpenAI-compatible API.
+func NewWithName(name string, cfg config.ProviderConfig, models []types.ModelConfig) (*OpenAI, error) {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 
+	// All OpenAI-compatible platforms use Bearer auth
+	auth := transport.NewAuthStrategy(name, cfg.APIKey)
+
 	return &OpenAI{
 		client:  transport.DefaultHTTPClient(),
-		auth:    transport.NewAuthStrategy(providerName, cfg.APIKey),
+		auth:    auth,
 		baseURL: baseURL,
+		name:    name,
 		models:  models,
 	}, nil
 }
 
 // Name returns the provider name.
 func (p *OpenAI) Name() string {
-	return providerName
+	return p.name
 }
 
 // Models returns the list of models this provider supports.
@@ -54,7 +67,7 @@ func (p *OpenAI) Models() []types.ModelConfig {
 // Supports returns true if this provider supports the given capability.
 func (p *OpenAI) Supports(cap provider.Capability) bool {
 	switch cap {
-	case provider.CapChat, provider.CapStream, provider.CapTools, provider.CapVision, provider.CapJSONMode:
+	case provider.CapChat, provider.CapResponses, provider.CapStream, provider.CapTools, provider.CapVision, provider.CapJSONMode:
 		return true
 	case provider.CapEmbed:
 		// Check if any model supports embedding

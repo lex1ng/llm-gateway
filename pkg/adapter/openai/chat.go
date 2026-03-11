@@ -31,7 +31,7 @@ func (p *OpenAI) Chat(ctx context.Context, req *types.ChatRequest) (*types.ChatR
 	// Convert to unified response
 	resp := p.buildChatResponse(&openAIResp)
 	resp.LatencyMs = time.Since(startTime).Milliseconds()
-	resp.Provider = providerName
+	resp.Provider = p.name
 
 	return resp, nil
 }

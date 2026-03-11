@@ -60,7 +60,10 @@ func registerProviders(cfg *config.Config, registry *provider.Registry) error {
 		switch name {
 		case "openai":
 			p, err = openai.New(provCfg, models)
-		// TODO: Add other providers (anthropic, google, compatible)
+		case "alibaba", "baidu", "volcengine", "zhipu", "minimax", "deepseek", "moonshot", "01ai", "baichuan":
+			// Domestic platforms use OpenAI-compatible API, reuse the adapter with custom name
+			p, err = openai.NewWithName(name, provCfg, models)
+		// TODO: Add other providers (anthropic, google)
 		default:
 			log.Printf("[WARN] provider %q is configured but has no adapter implementation, skipping", name)
 			continue
@@ -164,6 +167,37 @@ func (m *Manager) ChatStream(ctx context.Context, req *types.ChatRequest) (<-cha
 
 	// Execute request
 	return cp.ChatStream(ctx, req)
+}
+
+// Responses handles a non-streaming Responses API request.
+// This API is OpenAI-specific and provides better performance with reasoning models.
+func (m *Manager) Responses(ctx context.Context, req *types.ResponsesRequest) (*types.ResponsesResponse, error) {
+	// Route request to provider
+	rp, model, err := m.router.SelectResponses(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update model in request
+	req.Model = model
+
+	// Execute request
+	return rp.Responses(ctx, req)
+}
+
+// ResponsesStream handles a streaming Responses API request.
+func (m *Manager) ResponsesStream(ctx context.Context, req *types.ResponsesRequest) (<-chan types.ResponsesStreamEvent, error) {
+	// Route request to provider
+	rp, model, err := m.router.SelectResponses(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update model in request
+	req.Model = model
+
+	// Execute request
+	return rp.ResponsesStream(ctx, req)
 }
 
 // ListModels returns all available models.

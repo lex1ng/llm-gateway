@@ -157,26 +157,111 @@ model_catalog:
       vision: true
       streaming: true
 
+  # ========== Volcengine (Doubao) Models ==========
+  - id: "doubao-1.5-pro-256k"
+    provider: "volcengine"
+    tier: "large"
+    context_window: 256000
+    max_output: 16384
+    input_price: 0.0008
+    output_price: 0.002
+    capabilities:
+      chat: true
+      tools: true
+      streaming: true
+
+  - id: "doubao-1.5-lite-32k"
+    provider: "volcengine"
+    tier: "small"
+    context_window: 32768
+    max_output: 4096
+    input_price: 0.0003
+    output_price: 0.0006
+    capabilities:
+      chat: true
+      tools: true
+      streaming: true
+
+  # ========== Zhipu (GLM) Models ==========
+  - id: "glm-4-plus"
+    provider: "zhipu"
+    tier: "large"
+    context_window: 128000
+    max_output: 4096
+    input_price: 0.05
+    output_price: 0.05
+    capabilities:
+      chat: true
+      tools: true
+      streaming: true
+
+  - id: "glm-4-flash"
+    provider: "zhipu"
+    tier: "small"
+    context_window: 128000
+    max_output: 4096
+    input_price: 0.0001
+    output_price: 0.0001
+    capabilities:
+      chat: true
+      tools: true
+      streaming: true
+
+  # ========== DeepSeek Models ==========
+  - id: "deepseek-chat"
+    provider: "deepseek"
+    tier: "medium"
+    context_window: 65536
+    max_output: 8192
+    input_price: 0.00014
+    output_price: 0.00028
+    capabilities:
+      chat: true
+      tools: true
+      json_mode: true
+      streaming: true
+
+  - id: "deepseek-reasoner"
+    provider: "deepseek"
+    tier: "large"
+    context_window: 65536
+    max_output: 8192
+    input_price: 0.00055
+    output_price: 0.00219
+    capabilities:
+      chat: true
+      streaming: true
+      reasoning: true
+
 # Tier-based routing configuration
 tier_routing:
   small:
     - provider: "alibaba"
       model: "qwen-turbo"
       priority: 1
+    - provider: "deepseek"
+      model: "deepseek-chat"
+      priority: 2
+    - provider: "zhipu"
+      model: "glm-4-flash"
+      priority: 3
     - provider: "openai"
       model: "gpt-4o-mini"
-      priority: 2
+      priority: 4
     - provider: "anthropic"
       model: "claude-3-5-haiku-20241022"
-      priority: 3
+      priority: 5
 
   medium:
     - provider: "alibaba"
       model: "qwen-plus"
       priority: 1
+    - provider: "deepseek"
+      model: "deepseek-chat"
+      priority: 2
     - provider: "openai"
       model: "gpt-4o-mini"
-      priority: 2
+      priority: 3
 
   large:
     - provider: "openai"
@@ -185,6 +270,12 @@ tier_routing:
     - provider: "anthropic"
       model: "claude-sonnet-4-5-20250929"
       priority: 2
+    - provider: "deepseek"
+      model: "deepseek-reasoner"
+      priority: 3
     - provider: "alibaba"
       model: "qwen-max"
-      priority: 3
+      priority: 4
+    - provider: "volcengine"
+      model: "doubao-1.5-pro-256k"
+      priority: 5

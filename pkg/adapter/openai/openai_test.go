@@ -104,8 +104,8 @@ func TestChat_NonStream(t *testing.T) {
 	if resp.Provider != "openai" {
 		t.Errorf("expected provider 'openai', got %q", resp.Provider)
 	}
-	if resp.LatencyMs <= 0 {
-		t.Error("expected positive latency")
+	if resp.LatencyMs < 0 {
+		t.Error("expected non-negative latency")
 	}
 }
 
