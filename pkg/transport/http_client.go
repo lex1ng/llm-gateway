@@ -67,6 +67,11 @@ func NewHTTPClientWithProxy(proxy string) *HTTPClient {
 	return NewHTTPClient(HTTPClientConfig{Proxy: proxy})
 }
 
+// NewHTTPClientWithConfig creates an HTTPClient with proxy and timeout configuration.
+func NewHTTPClientWithConfig(proxy string, timeout time.Duration) *HTTPClient {
+	return NewHTTPClient(HTTPClientConfig{Proxy: proxy, Timeout: timeout})
+}
+
 // resolveProxyFunc returns the appropriate proxy function based on the proxy config string.
 //   - "http://host:port" or "socks5://host:port": use fixed proxy
 //   - "none" or "direct": no proxy (direct connect)

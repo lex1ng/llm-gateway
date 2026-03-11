@@ -84,7 +84,7 @@ func NewWithName(name string, cfg config.ProviderConfig, models []types.ModelCon
 	}
 
 	return &Anthropic{
-		client:       transport.NewHTTPClientWithProxy(cfg.Proxy),
+		client:       transport.NewHTTPClientWithConfig(cfg.Proxy, cfg.Timeout),
 		auth:         auth,
 		baseURL:      baseURL,
 		messagesPath: messagesPath,

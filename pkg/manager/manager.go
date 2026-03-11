@@ -154,6 +154,13 @@ func buildTierRouting(cfgRouting map[string][]config.RouteEntry) map[types.Model
 
 // Chat handles a non-streaming chat completion request.
 func (m *Manager) Chat(ctx context.Context, req *types.ChatRequest) (*types.ChatResponse, error) {
+	// Apply timeout from config if no deadline already set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && m.config.Manager.Timeout.TotalNonStream > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, m.config.Manager.Timeout.TotalNonStream)
+		defer cancel()
+	}
+
 	// Route request to provider
 	cp, model, err := m.router.SelectChat(req)
 	if err != nil {
@@ -169,6 +176,13 @@ func (m *Manager) Chat(ctx context.Context, req *types.ChatRequest) (*types.Chat
 
 // ChatStream handles a streaming chat completion request.
 func (m *Manager) ChatStream(ctx context.Context, req *types.ChatRequest) (<-chan types.StreamEvent, error) {
+	// Apply timeout from config if no deadline already set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && m.config.Manager.Timeout.TotalStream > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, m.config.Manager.Timeout.TotalStream)
+		defer cancel()
+	}
+
 	// Route request to provider
 	cp, model, err := m.router.SelectChat(req)
 	if err != nil {
@@ -185,6 +199,13 @@ func (m *Manager) ChatStream(ctx context.Context, req *types.ChatRequest) (<-cha
 // Responses handles a non-streaming Responses API request.
 // This API is OpenAI-specific and provides better performance with reasoning models.
 func (m *Manager) Responses(ctx context.Context, req *types.ResponsesRequest) (*types.ResponsesResponse, error) {
+	// Apply timeout from config if no deadline already set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && m.config.Manager.Timeout.TotalNonStream > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, m.config.Manager.Timeout.TotalNonStream)
+		defer cancel()
+	}
+
 	// Route request to provider
 	rp, model, err := m.router.SelectResponses(req)
 	if err != nil {
@@ -200,6 +221,13 @@ func (m *Manager) Responses(ctx context.Context, req *types.ResponsesRequest) (*
 
 // ResponsesStream handles a streaming Responses API request.
 func (m *Manager) ResponsesStream(ctx context.Context, req *types.ResponsesRequest) (<-chan types.ResponsesStreamEvent, error) {
+	// Apply timeout from config if no deadline already set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && m.config.Manager.Timeout.TotalStream > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, m.config.Manager.Timeout.TotalStream)
+		defer cancel()
+	}
+
 	// Route request to provider
 	rp, model, err := m.router.SelectResponses(req)
 	if err != nil {

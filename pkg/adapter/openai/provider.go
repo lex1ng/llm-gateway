@@ -68,7 +68,7 @@ func NewWithName(name string, cfg config.ProviderConfig, models []types.ModelCon
 	auth := &transport.BearerAuth{APIKey: cfg.APIKey}
 
 	return &OpenAI{
-		client:        transport.NewHTTPClientWithProxy(cfg.Proxy),
+		client:        transport.NewHTTPClientWithConfig(cfg.Proxy, cfg.Timeout),
 		auth:          auth,
 		baseURL:       baseURL,
 		chatPath:      chatPath,
