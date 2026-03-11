@@ -1,115 +1,163 @@
 # LLM Gateway
 
-统一的 LLM API 网关，支持 OpenAI、Anthropic、阿里百炼等多个平台，提供智能路由、熔断降级、缓存等企业级特性。
+统一的 LLM API 网关，支持 OpenAI、Anthropic、阿里百炼、火山引擎、智谱、DeepSeek 等多个平台，提供智能路由、熔断降级、缓存等企业级特性。
 
 ## 特性
 
-- 🔌 **多平台支持**：OpenAI、Anthropic、阿里百炼、火山引擎等
-- 🔄 **智能路由**：按模型名、Provider、模型层级(Tier)自动路由
-- 📦 **双模式使用**：HTTP API 或 Go SDK 直接集成
-- 🔐 **BYOK 支持**：请求级动态凭证，支持客户自带 API Key
-- 🌊 **流式响应**：完整支持 SSE 流式输出
-- 📊 **OpenAI 兼容**：API 格式与 OpenAI 完全兼容
+- **多平台支持**：OpenAI、Anthropic、阿里百炼、火山引擎、智谱、DeepSeek，以及任何 OpenAI 兼容接口
+- **智能路由**：按模型名、Provider、模型层级(Tier)自动路由
+- **双模式使用**：HTTP API 或 Go SDK 直接集成
+- **BYOK 支持**：请求级动态凭证，支持客户自带 API Key
+- **流式响应**：完整支持 SSE 流式输出
+- **OpenAI 兼容**：API 格式与 OpenAI `/v1/chat/completions` 完全兼容
+- **Per-Provider 代理**：每个厂商可独立配置 HTTP 代理（海外走代理、国内直连）
+- **Responses API**：支持 OpenAI Responses API（`/v1/responses`），适合推理模型
 
 ## 快速开始
 
-### 1. 安装
+### 1. 编译
 
 ```bash
-go get github.com/lex1ng/llm-gateway
+git clone https://github.com/lex1ng/llm-gateway.git
+cd llm-gateway
+go build -o llm-gateway cmd/server/main.go
 ```
 
-### 2. 配置
+### 2. 配置 API Key
 
-创建 `config/config.yaml`：
-
-```yaml
-server:
-  port: 8080
-
-providers:
-  openai:
-    base_url: "https://api.openai.com/v1"
-    api_key: "${OPENAI_API_KEY}"
-
-model_catalog:
-  - id: "gpt-4o"
-    provider: "openai"
-    tier: "large"
-    context_window: 128000
-    max_output: 16384
-    input_price: 0.0025
-    output_price: 0.01
-    capabilities:
-      chat: true
-      vision: true
-      tools: true
-      streaming: true
-
-  - id: "gpt-4o-mini"
-    provider: "openai"
-    tier: "small"
-    context_window: 128000
-    max_output: 16384
-    input_price: 0.00015
-    output_price: 0.0006
-    capabilities:
-      chat: true
-      streaming: true
-
-tier_routing:
-  small:
-    - provider: "openai"
-      model: "gpt-4o-mini"
-      priority: 1
-  large:
-    - provider: "openai"
-      model: "gpt-4o"
-      priority: 1
-```
-
-### 3. 启动服务器
+创建 `config/.env` 文件（或直接 export 环境变量）：
 
 ```bash
-# 设置 API Key
-export OPENAI_API_KEY="sk-..."
-
-# 启动服务
-go run cmd/server/main.go -config config/config.yaml
+# 至少配置一个厂商的 Key 即可启动，没有 Key 的厂商会自动跳过
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+DASHSCOPE_API_KEY=sk-...
+ARK_API_KEY=...
+ZHIPU_API_KEY=...
+DEEPSEEK_API_KEY=sk-...
 ```
 
-### 4. 发送请求
+> 配置文件中使用 `${VAR_NAME}` 引用环境变量，支持默认值 `${VAR:-default}`。
 
-**非流式请求：**
+### 3. 启动服务
+
+```bash
+# 方式一：使用 .env 文件
+go run cmd/server/main.go --env config/.env
+
+# 方式二：直接 export 环境变量
+export OPENAI_API_KEY=sk-...
+go run cmd/server/main.go
+
+# 自定义配置文件路径
+go run cmd/server/main.go --config config/config.yaml --env config/.env
+```
+
+启动后默认监听 `0.0.0.0:8080`。
+
+### 4. 验证服务
+
+```bash
+# 健康检查
+curl http://localhost:8080/health
+
+# 查看可用模型
+curl http://localhost:8080/v1/models
+```
+
+---
+
+## 请求方式
+
+### 方式一：curl 请求
+
+#### 非流式请求
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-4o-mini",
-    "messages": [
-      {"role": "user", "content": "Hello!"}
-    ]
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "max_tokens": 100
   }'
 ```
 
-**流式请求：**
+#### 流式请求
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -N \
+  -d '{
+    "model": "qwen-turbo",
+    "messages": [{"role": "user", "content": "写一首关于编程的诗"}],
+    "stream": true,
+    "max_tokens": 200
+  }'
+```
+
+#### 指定厂商
+
+当模型名在 catalog 中有注册时，gateway 自动解析对应的厂商。如果需要调用**未注册的模型**（或同名模型在多厂商都有），通过 `provider` 字段显式指定：
 
 ```bash
 curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4o-mini",
-    "messages": [
-      {"role": "user", "content": "写一首关于编程的诗"}
-    ],
-    "stream": true
+    "provider": "alibaba",
+    "model": "qwen3-0.6b",
+    "messages": [{"role": "user", "content": "你好"}],
+    "max_tokens": 50
   }'
 ```
 
-## SDK 使用
+#### BYOK（自带 API Key）
 
-直接在 Go 项目中使用，无需启动 HTTP 服务：
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "credentials": {"api_key": "sk-your-own-key"},
+    "max_tokens": 100
+  }'
+```
+
+#### Tier 路由
+
+不指定具体模型，按层级自动选择最优可用模型：
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_tier": "small",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "max_tokens": 50
+  }'
+```
+
+`model_tier` 可选值：`small`、`medium`、`large`。路由优先级在 `config/models.yaml` 的 `tier_routing` 中配置。
+
+#### Responses API
+
+OpenAI Responses API，适合推理模型：
+
+```bash
+curl http://localhost:8080/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "input": "What is 2+2?",
+    "max_output_tokens": 100
+  }'
+```
+
+### 方式二：Go SDK 调用
+
+无需启动 HTTP 服务，直接在 Go 项目中集成：
 
 ```go
 package main
@@ -124,14 +172,13 @@ import (
 )
 
 func main() {
-    // 创建客户端
     client, err := gateway.New("config/config.yaml")
     if err != nil {
         log.Fatal(err)
     }
     defer client.Close()
 
-    // 非流式调用
+    // --- 非流式调用 ---
     resp, err := client.Chat(context.Background(), &types.ChatRequest{
         Model: "gpt-4o-mini",
         Messages: []types.Message{
@@ -143,9 +190,9 @@ func main() {
     }
     fmt.Println(resp.Content)
 
-    // 流式调用
+    // --- 流式调用 ---
     stream, err := client.ChatStream(context.Background(), &types.ChatRequest{
-        Model:  "gpt-4o-mini",
+        Model:  "qwen-turbo",
         Stream: true,
         Messages: []types.Message{
             {Role: types.RoleUser, Content: types.NewTextContent("写一首诗")},
@@ -154,7 +201,6 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-
     for event := range stream {
         switch event.Type {
         case types.StreamEventContentDelta:
@@ -168,80 +214,280 @@ func main() {
 }
 ```
 
-## 高级用法
-
-### Tier 路由
-
-不指定具体模型，按层级自动选择：
+#### SDK 路由控制
 
 ```go
-resp, err := client.Chat(ctx, &types.ChatRequest{
-    ModelTier: types.TierSmall,  // small / medium / large
+// 按 Tier 路由
+resp, _ := client.Chat(ctx, &types.ChatRequest{
+    ModelTier: types.TierSmall,
     Messages:  messages,
 })
-```
 
-### BYOK (自带 API Key)
-
-请求级覆盖 API Key：
-
-```go
-resp, err := client.Chat(ctx, &types.ChatRequest{
-    Model:    "gpt-4o",
+// 指定厂商 + 模型（可以是 catalog 外的模型）
+resp, _ := client.Chat(ctx, &types.ChatRequest{
+    Provider: "alibaba",
+    Model:    "qwen3-0.6b",
     Messages: messages,
-    Credentials: map[string]string{
-        "api_key": "sk-user-provided-key",
-    },
+})
+
+// BYOK
+resp, _ := client.Chat(ctx, &types.ChatRequest{
+    Model:       "gpt-4o",
+    Messages:    messages,
+    Credentials: map[string]string{"api_key": "sk-user-key"},
 })
 ```
 
-### 指定 Provider
+### 方式三：测试脚本
 
-强制使用特定 Provider：
+项目自带测试脚本，方便快速验证：
 
-```go
-resp, err := client.Chat(ctx, &types.ChatRequest{
-    Provider:  "openai",
-    ModelTier: types.TierLarge,
-    Messages:  messages,
-})
+```bash
+# 健康检查 + 列出模型
+./scripts/test-api.sh
+
+# 非流式 Chat（默认模型 gpt-4o-mini）
+./scripts/test-api.sh chat
+
+# 指定 catalog 中的模型
+./scripts/test-api.sh chat qwen-turbo
+
+# 指定厂商:模型（catalog 外的模型也可以）
+./scripts/test-api.sh chat alibaba:qwen3-0.6b
+
+# 带自定义 prompt
+./scripts/test-api.sh chat "Claude Opus 4.6" "你好"
+
+# 流式请求
+./scripts/test-api.sh stream qwen-turbo "写一首诗"
+
+# Responses API
+./scripts/test-api.sh responses gpt-4o
+
+# 错误场景测试
+./scripts/test-api.sh errors
+
+# 全部测试
+./scripts/test-api.sh all qwen-turbo
 ```
+
+---
+
+## 添加新厂商
+
+只需修改两个配置文件，无需写代码。
+
+### 第一步：在 `config/config.yaml` 添加 Provider
+
+```yaml
+providers:
+  # ... 已有的 providers ...
+
+  my-new-provider:
+    base_url: "https://api.example.com/v1"    # 厂商 API 地址
+    api_key: "${MY_PROVIDER_API_KEY}"          # 从环境变量读取
+    rate_limit: 300
+    proxy: "none"                              # 国内直连。留空则使用 HTTP_PROXY 环境变量
+    # extra:
+    #   chat_path: "/chat/completions"         # 自定义 endpoint 路径（默认 /chat/completions）
+```
+
+> 所有走 **OpenAI 兼容协议**的厂商（绝大多数国内平台），gateway 都能直接接入，无需额外开发。
+
+### 第二步：在 `config/models.yaml` 注册模型
+
+```yaml
+model_catalog:
+  # ... 已有模型 ...
+
+  - id: "example-model-pro"                   # 模型 ID（需要和厂商实际模型名一致）
+    provider: "my-new-provider"               # 对应 config.yaml 中的 provider 名
+    tier: "large"                             # small / medium / large
+    context_window: 128000
+    max_output: 8192
+    input_price: 0.002                        # 每 1K token 价格（用于成本计算）
+    output_price: 0.006
+    capabilities:
+      chat: true
+      streaming: true
+      tools: true                             # 是否支持 function calling
+      vision: true                            # 是否支持图片输入
+      json_mode: true                         # 是否支持 JSON mode
+
+# 如需 Tier 路由，将模型加入路由表
+tier_routing:
+  large:
+    - provider: "my-new-provider"
+      model: "example-model-pro"
+      priority: 3                             # 优先级数字越小越优先
+```
+
+### 第三步：设置 API Key 并重启
+
+```bash
+export MY_PROVIDER_API_KEY="your-api-key"
+go run cmd/server/main.go --env config/.env
+```
+
+启动日志会显示哪些 provider 加载成功，哪些因缺少 API Key 被跳过。
+
+### 快速接入示例
+
+以 **Moonshot（月之暗面）** 为例：
+
+**config.yaml:**
+```yaml
+providers:
+  moonshot:
+    base_url: "https://api.moonshot.cn/v1"
+    api_key: "${MOONSHOT_API_KEY}"
+    rate_limit: 300
+    proxy: "none"
+```
+
+**models.yaml:**
+```yaml
+model_catalog:
+  - id: "moonshot-v1-8k"
+    provider: "moonshot"
+    tier: "small"
+    context_window: 8192
+    max_output: 4096
+    input_price: 0.012
+    output_price: 0.012
+    capabilities:
+      chat: true
+      streaming: true
+
+tier_routing:
+  small:
+    - provider: "moonshot"
+      model: "moonshot-v1-8k"
+      priority: 5
+```
+
+```bash
+export MOONSHOT_API_KEY="sk-..."
+# 重启服务后即可调用
+curl http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "moonshot-v1-8k", "messages": [{"role": "user", "content": "你好"}]}'
+```
+
+### 接入非 OpenAI 协议的厂商
+
+如果厂商**不是** OpenAI 兼容接口（如 Anthropic 原生 API），但你有一个 OpenAI 兼容的代理（如 OneAPI），可以通过 `api_format` 配置：
+
+```yaml
+providers:
+  anthropic:
+    base_url: "https://your-oneapi-proxy.com/v1"   # OneAPI 代理地址
+    api_key: "${ANTHROPIC_API_KEY}"
+    proxy: "none"
+    extra:
+      api_format: "openai"                          # 走 OpenAI 兼容格式
+```
+
+直连 Anthropic 原生 API：
+
+```yaml
+providers:
+  anthropic:
+    base_url: "https://api.anthropic.com"
+    api_key: "${ANTHROPIC_API_KEY}"
+    # proxy: ""                                     # 海外 API 需要代理
+    extra:
+      anthropic_version: "2023-06-01"               # API 版本
+      default_max_tokens: 4096                      # 默认 max_tokens
+```
+
+---
+
+## 配置参考
+
+### Per-Provider 代理配置
+
+每个 provider 可以独立配置 HTTP 代理行为：
+
+```yaml
+providers:
+  openai:
+    proxy: ""              # 留空：使用系统环境变量 HTTP_PROXY/HTTPS_PROXY（适合海外 API）
+  alibaba:
+    proxy: "none"          # 国内平台直连，不走代理
+  custom:
+    proxy: "http://proxy.example.com:8080"   # 使用指定代理
+    # proxy: "socks5://proxy.example.com:1080"  # 也支持 SOCKS5
+```
+
+| proxy 值 | 行为 |
+|----------|------|
+| `""` (留空/不写) | 使用系统环境变量 `HTTP_PROXY`/`HTTPS_PROXY` |
+| `"none"` 或 `"direct"` | 不使用代理，直连 |
+| `"http://host:port"` | 使用指定 HTTP 代理 |
+| `"socks5://host:port"` | 使用指定 SOCKS5 代理 |
+
+### 可配置的 Extra 字段
+
+通过 `extra` 字段可以自定义厂商的行为：
+
+| 字段 | 适用于 | 默认值 | 说明 |
+|------|--------|--------|------|
+| `chat_path` | OpenAI 兼容 | `/chat/completions` | Chat 接口路径 |
+| `responses_path` | OpenAI 兼容 | `/responses` | Responses 接口路径 |
+| `models_path` | OpenAI 兼容 | `/models` | 模型列表接口路径 |
+| `api_format` | Anthropic | `anthropic` | 设为 `"openai"` 时走 OpenAI 兼容协议 |
+| `anthropic_version` | Anthropic 原生 | `2023-06-01` | Anthropic API 版本 |
+| `default_max_tokens` | Anthropic 原生 | `4096` | 默认 max_tokens |
+| `messages_path` | Anthropic 原生 | `/v1/messages` | Messages 接口路径 |
+
+---
 
 ## API 端点
 
 | 端点 | 方法 | 描述 |
 |------|------|------|
-| `/v1/chat/completions` | POST | Chat 对话（OpenAI 兼容） |
-| `/v1/models` | GET | 列出可用模型 |
+| `/v1/chat/completions` | POST | Chat 对话（OpenAI 兼容格式） |
+| `/v1/responses` | POST | Responses API（OpenAI 推理模型） |
+| `/v1/models` | GET | 列出所有可用模型 |
 | `/health` | GET | 健康检查 |
+| `/healthz` | GET | 健康检查（K8s 探针） |
 
 ## 项目结构
 
 ```
-.
-├── api/                    # HTTP API 层
-│   ├── handler/            # 请求处理器
-│   └── router.go           # 路由注册
-├── cmd/server/             # 服务入口
-├── config/                 # 配置加载
+llm-gateway/
+├── cmd/server/             # HTTP 服务入口
+├── config/
+│   ├── config.yaml         # 主配置（providers、server、manager 等）
+│   └── models.yaml         # 模型目录 + Tier 路由配置
 ├── pkg/
-│   ├── adapter/            # Provider 适配器
-│   │   └── openai/         # OpenAI 实现
-│   ├── gateway/            # SDK 入口
-│   ├── manager/            # 请求编排
-│   ├── provider/           # Provider 接口
-│   ├── transport/          # HTTP 客户端
-│   └── types/              # 核心类型
-└── examples/               # 使用示例
+│   ├── adapter/
+│   │   ├── openai/         # OpenAI 及所有兼容接口的适配器
+│   │   └── anthropic/      # Anthropic 原生接口适配器
+│   ├── gateway/            # SDK 入口（Go 项目直接集成）
+│   ├── manager/            # 请求编排（路由、重试、熔断）
+│   ├── provider/           # Provider 接口定义
+│   ├── transport/          # HTTP 客户端（代理、认证）
+│   └── types/              # 核心类型定义
+├── api/
+│   ├── handler/            # HTTP 请求处理器
+│   └── router.go           # 路由注册
+└── scripts/
+    └── test-api.sh         # API 测试脚本
 ```
 
-## 开发进度
+## 已支持的厂商
 
-- ✅ Sprint 1: 核心类型、配置、传输层
-- ✅ Sprint 2: OpenAI Chat 完整链路
-- 🚧 Sprint 3: Anthropic + 国内平台
-- 🚧 Sprint 4: 熔断、重试、缓存
-- 📋 Sprint 5-9: Hook 系统、配额、多媒体等
+| 厂商 | Provider 名称 | 协议 | 状态 |
+|------|--------------|------|------|
+| OpenAI | `openai` | OpenAI 原生 | ✅ |
+| Anthropic | `anthropic` | OpenAI 兼容 / 原生 | ✅ |
+| 阿里百炼 (DashScope) | `alibaba` | OpenAI 兼容 | ✅ |
+| 火山引擎 (Doubao) | `volcengine` | OpenAI 兼容 | ✅ |
+| 智谱 (GLM) | `zhipu` | OpenAI 兼容 | ✅ |
+| DeepSeek | `deepseek` | OpenAI 兼容 | ✅ |
+| 任意 OpenAI 兼容平台 | 自定义名称 | OpenAI 兼容 | ✅ |
 
 ## License
 

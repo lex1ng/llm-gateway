@@ -46,7 +46,7 @@
 |--------|------|------|
 | Sprint 1 | 地基层：Types + Config + Transport | ✅ 12/12 |
 | Sprint 2 | 第一条垂直切片：OpenAI Chat 全通 | ✅ 16/16 |
-| Sprint 3 | 横向扩展：Anthropic + 国内平台 | 🔨 3/13 |
+| Sprint 3 | 横向扩展：Anthropic + 国内平台 | 🔨 8/13 |
 | Sprint 4 | 编排层核心能力 | ⬜ 0/18 |
 | Sprint 5 | Hook 系统 + 配额 + 消费记录 | ⬜ 0/13 |
 | Sprint 6 | Tool Calling + Embeddings | ⬜ 0/9 |
@@ -126,12 +126,12 @@
 
 | ID | 任务 | 产出文件 | 前置依赖 | 设计文档 | 状态 | 备注 |
 |----|------|---------|---------|---------|------|------|
-| 3.1.1 | Anthropic 消息格式转换 ToAnthropic() | `pkg/mapper/message.go` | 1.2.1 | §8 | ⬜ | system 抽取、role 映射 |
+| 3.1.1 | Anthropic 消息格式转换 ToAnthropic() | `pkg/adapter/anthropic/chat.go` | 1.2.1 | §8 | ✅ | 内联在 adapter 中，extractSystemAndConvert() |
 | 3.1.2 | Gemini 消息格式转换 ToGemini() | `pkg/mapper/message.go` | 1.2.1 | §8 | ⬜ | contents/parts 结构 |
-| 3.1.3 | 各平台流式解析器（ParseAnthropicStream / ParseGeminiStream） | `pkg/mapper/stream.go` | 1.4.3 | §9 | ⬜ | |
-| 3.2.1 | Anthropic Provider + Mapper | `pkg/adapter/anthropic/provider.go`, `mapper.go` | 3.1.1, 1.4.2 | §6.2 | ⬜ | AnthropicAuth 认证 |
-| 3.2.2 | Anthropic Chat 非流式 | `pkg/adapter/anthropic/chat.go` | 3.2.1 | §6.2 | ⬜ | max_tokens 必填默认 4096 |
-| 3.2.3 | Anthropic Chat 流式 | `pkg/adapter/anthropic/stream.go` | 3.2.1, 3.1.3 | §6.2 | ⬜ | content_block_delta 格式 |
+| 3.1.3 | 各平台流式解析器（ParseAnthropicStream / ParseGeminiStream） | `pkg/adapter/anthropic/stream.go` | 1.4.3 | §9 | ✅ | Anthropic 部分完成，内联在 adapter |
+| 3.2.1 | Anthropic Provider + Mapper | `pkg/adapter/anthropic/provider.go`, `chat.go` | 3.1.1, 1.4.2 | §6.2 | ✅ | AnthropicAuth + 11 个单元测试 |
+| 3.2.2 | Anthropic Chat 非流式 | `pkg/adapter/anthropic/chat.go` | 3.2.1 | §6.2 | ✅ | system 抽取、max_tokens 默认 4096、stop→stop_sequences |
+| 3.2.3 | Anthropic Chat 流式 | `pkg/adapter/anthropic/stream.go` | 3.2.1, 3.1.3 | §6.2 | ✅ | content_block_delta + message_delta 解析 |
 | 3.3.1 | Compatible Provider + PlatformPresets | `pkg/adapter/openai/provider.go` (复用) | 1.4.1 | §6.4 | ✅ | 复用 OpenAI 适配器 + `NewWithName()`，无需独立 adapter |
 | 3.3.2 | Compatible Chat 非流式 | `pkg/adapter/openai/chat.go` (复用) | 3.3.1 | §6.4 | ✅ | OpenAI compatible，直接复用 |
 | 3.3.3 | Compatible Chat 流式 | `pkg/adapter/openai/stream.go` (复用) | 3.3.1 | §6.4 | ✅ | OpenAI compatible，直接复用 |
@@ -306,6 +306,13 @@
 
 | 日期 | 操作者 | 变更 |
 |------|--------|------|
+| 2026-03-11 | Claude | README 全面重写，涵盖部署/请求方式/添加厂商指南/配置参考 |
+| 2026-03-11 | Claude | Per-provider HTTP 代理：transport 层 + provider 构造器 + config.yaml |
+| 2026-03-11 | Claude | OpenAI adapter 增强：configurable endpoints、BearerAuth 修复、enable_thinking scope 修复 |
+| 2026-03-11 | Claude | ProviderConfig.Extra map + GetExtra/GetExtraInt helpers，支持厂商自定义参数 |
+| 2026-03-11 | Claude | Anthropic adapter：api_format switch 支持 OpenAI 兼容代理 |
+| 2026-03-11 | Claude | Responses API 支持（provider 接口 + handler + router） |
+| 2026-03-11 | Claude | Sprint 3 Anthropic adapter (3.1.1, 3.1.3, 3.2.1-3.2.3) 完成，11 个单元测试通过 |
 | 2026-03-11 | Claude | Sprint 3 Compatible Provider (3.3.1-3.3.3) 完成，复用 OpenAI adapter + NewWithName() |
 | 2026-02-23 | Claude | Sprint 2 完成 (2.1.1-2.5.3)，commit `0674a11` |
 | 2026-02-23 | Claude | Sprint 1 完成 (1.3.1-1.4.3)，commit `fcb252f` |

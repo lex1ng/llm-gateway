@@ -3,16 +3,14 @@
 # Usage:
 #   ./scripts/test-api.sh                              # Health + models check only
 #   ./scripts/test-api.sh chat                         # Chat with default model (gpt-4o-mini)
-#   ./scripts/test-api.sh chat gpt-5                   # Chat with specific model
-#   ./scripts/test-api.sh chat gpt-5 "Hello world"    # Chat with specific model and prompt
-#   ./scripts/test-api.sh stream                       # Stream with default model
-#   ./scripts/test-api.sh stream gpt-5                 # Stream with specific model
-#   ./scripts/test-api.sh stream gpt-5 "Tell a joke"  # Stream with specific model and prompt
-#   ./scripts/test-api.sh responses                    # Responses API (non-streaming)
-#   ./scripts/test-api.sh responses gpt-4o             # Responses API with specific model
-#   ./scripts/test-api.sh responses-stream             # Responses API (streaming)
-#   ./scripts/test-api.sh errors                       # Error scenario tests (no API key needed)
-#   ./scripts/test-api.sh all                          # Run all tests (chat + stream + responses + errors)
+#   ./scripts/test-api.sh chat qwen-turbo              # Chat with catalog model (auto-resolve provider)
+#   ./scripts/test-api.sh chat alibaba:qwen3-0.6b      # Chat with explicit provider:model
+#   ./scripts/test-api.sh chat alibaba:qwen3-0.6b "Hi" # Chat with provider:model and prompt
+#   ./scripts/test-api.sh stream alibaba:qwen-turbo     # Stream with provider:model
+#   ./scripts/test-api.sh responses gpt-4o              # Responses API
+#   ./scripts/test-api.sh responses-stream              # Responses API (streaming)
+#   ./scripts/test-api.sh errors                        # Error scenario tests
+#   ./scripts/test-api.sh all                           # Run all tests
 #
 # Environment:
 #   GATEWAY_URL  - Gateway base URL (default: http://localhost:8080)
@@ -25,9 +23,24 @@ set -eo pipefail
 
 BASE_URL="${GATEWAY_URL:-http://localhost:8080}"
 MODE="${1:-}"
-MODEL="${2:-gpt-4o-mini}"
+MODEL_ARG="${2:-gpt-4o-mini}"
 CONTENT="${3:-Say hello in one word.}"
 MAX_TOKENS="${MAX_TOKENS:-20}"
+
+# Parse provider:model format (e.g. "alibaba:qwen3-0.6b")
+PROVIDER=""
+MODEL="$MODEL_ARG"
+if [[ "$MODEL_ARG" == *:* ]]; then
+    PROVIDER="${MODEL_ARG%%:*}"
+    MODEL="${MODEL_ARG#*:}"
+fi
+
+# Build the provider JSON fragment (empty string if no provider specified)
+provider_json() {
+    if [[ -n "$PROVIDER" ]]; then
+        echo "\"provider\": \"$PROVIDER\","
+    fi
+}
 
 # Colors
 RED='\033[0;31m'
@@ -86,13 +99,14 @@ for m in data[:10]:  # Show first 10
 test_chat() {
     local model="$1"
     local content="$2"
-    info "Testing chat: model=$model"
+    info "Testing chat: ${PROVIDER:+provider=$PROVIDER }model=$model"
     echo "  Prompt: $content"
 
     local resp code body
     resp=$(curl -s -w "\n%{http_code}" --max-time 60 "$BASE_URL/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -d "{
+            $(provider_json)
             \"model\": \"$model\",
             \"messages\": [{\"role\": \"user\", \"content\": \"$content\"}],
             \"max_tokens\": $MAX_TOKENS
@@ -124,7 +138,7 @@ if u:
 test_chat_stream() {
     local model="$1"
     local content="$2"
-    info "Testing stream: model=$model"
+    info "Testing stream: ${PROVIDER:+provider=$PROVIDER }model=$model"
     echo "  Prompt: $content"
     echo -n "  Response: "
 
@@ -132,6 +146,7 @@ test_chat_stream() {
     curl -s -N --max-time 60 "$BASE_URL/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -d "{
+            $(provider_json)
             \"model\": \"$model\",
             \"messages\": [{\"role\": \"user\", \"content\": \"$content\"}],
             \"max_tokens\": $MAX_TOKENS,
@@ -176,13 +191,14 @@ if not got_content:
 test_responses() {
     local model="$1"
     local content="$2"
-    info "Testing responses API: model=$model"
+    info "Testing responses API: ${PROVIDER:+provider=$PROVIDER }model=$model"
     echo "  Prompt: $content"
 
     local resp code body
     resp=$(curl -s -w "\n%{http_code}" --max-time 60 "$BASE_URL/v1/responses" \
         -H "Content-Type: application/json" \
         -d "{
+            $(provider_json)
             \"model\": \"$model\",
             \"input\": \"$content\",
             \"max_output_tokens\": $MAX_TOKENS
@@ -229,7 +245,7 @@ if u:
 test_responses_stream() {
     local model="$1"
     local content="$2"
-    info "Testing responses stream: model=$model"
+    info "Testing responses stream: ${PROVIDER:+provider=$PROVIDER }model=$model"
     echo "  Prompt: $content"
     echo -n "  Response: "
 
@@ -237,6 +253,7 @@ test_responses_stream() {
     curl -s -N --max-time 60 "$BASE_URL/v1/responses" \
         -H "Content-Type: application/json" \
         -d "{
+            $(provider_json)
             \"model\": \"$model\",
             \"input\": \"$content\",
             \"max_output_tokens\": $MAX_TOKENS,
@@ -380,22 +397,26 @@ show_help() {
     echo "LLM Gateway Test Script"
     echo ""
     echo "Usage:"
-    echo "  $0                                  # Health check + list models"
-    echo "  $0 chat [model] [prompt]            # Non-streaming chat"
-    echo "  $0 stream [model] [prompt]          # Streaming chat"
-    echo "  $0 responses [model] [prompt]       # Responses API (non-streaming)"
-    echo "  $0 responses-stream [model] [prompt]# Responses API (streaming)"
-    echo "  $0 errors                           # Error scenario tests"
-    echo "  $0 all [model] [prompt]             # Run all tests"
+    echo "  $0                                        # Health check + list models"
+    echo "  $0 chat [provider:]model [prompt]         # Non-streaming chat"
+    echo "  $0 stream [provider:]model [prompt]       # Streaming chat"
+    echo "  $0 responses [provider:]model [prompt]    # Responses API (non-streaming)"
+    echo "  $0 responses-stream [provider:]model [prompt]  # Responses API (streaming)"
+    echo "  $0 errors                                 # Error scenario tests"
+    echo "  $0 all [provider:]model [prompt]          # Run all tests"
+    echo ""
+    echo "The [provider:]model argument supports two formats:"
+    echo "  model-name          Use a model from the catalog (auto-resolve provider)"
+    echo "  provider:model      Explicitly specify provider (required for unlisted models)"
     echo ""
     echo "Examples:"
-    echo "  $0 chat                             # Chat with gpt-4o-mini"
-    echo "  $0 chat gpt-5                       # Chat with gpt-5 (passthrough)"
-    echo "  $0 chat gpt-5 'Tell me a joke'      # Chat with custom prompt"
-    echo "  $0 stream claude-3-5-sonnet-20241022 'Write a haiku'"
-    echo "  $0 responses gpt-4o 'What is 2+2?'  # Responses API"
-    echo "  $0 errors                            # Run error scenario tests"
-    echo "  $0 all                               # Run everything"
+    echo "  $0 chat qwen-turbo                        # Catalog model (provider auto-resolved)"
+    echo "  $0 chat alibaba:qwen3-0.6b                # Explicit provider + unlisted model"
+    echo "  $0 stream alibaba:qwen-turbo 'Write a haiku'"
+    echo "  $0 chat openai:gpt-4o 'Tell me a joke'"
+    echo "  $0 responses gpt-4o 'What is 2+2?'"
+    echo "  $0 errors"
+    echo "  $0 all alibaba:qwen-turbo"
     echo ""
     echo "Environment:"
     echo "  GATEWAY_URL   Base URL (default: http://localhost:8080)"
