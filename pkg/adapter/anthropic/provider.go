@@ -39,6 +39,7 @@ type Anthropic struct {
 	baseURL      string
 	messagesPath string // configurable endpoint path
 	maxTokens    int    // configurable default max_tokens
+	name         string // provider name (default "anthropic")
 	models       []types.ModelConfig
 }
 
@@ -49,7 +50,14 @@ type Anthropic struct {
 //	anthropic_version:  "2023-06-01"     # API version header
 //	default_max_tokens: 4096             # default max_tokens
 //	messages_path:      "/v1/messages"   # endpoint path (useful for proxies)
+//	auth_type:          "anthropic"      # "anthropic" (x-api-key) or "bearer"
 func New(cfg config.ProviderConfig, models []types.ModelConfig) (*Anthropic, error) {
+	return NewWithName(providerName, cfg, models)
+}
+
+// NewWithName creates an Anthropic adapter with a custom provider name.
+// Used when non-Anthropic providers expose an Anthropic-compatible API (e.g., Zhipu GLM).
+func NewWithName(name string, cfg config.ProviderConfig, models []types.ModelConfig) (*Anthropic, error) {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
@@ -59,9 +67,20 @@ func New(cfg config.ProviderConfig, models []types.ModelConfig) (*Anthropic, err
 	messagesPath := cfg.GetExtra("messages_path", defaultMessagesPath)
 	maxTokens := cfg.GetExtraInt("default_max_tokens", defaultMaxTokens)
 
-	auth := &transport.AnthropicAuth{
-		APIKey:  cfg.APIKey,
-		Version: version,
+	// Select auth strategy: Anthropic native (x-api-key) or Bearer token
+	authType := cfg.GetExtra("auth_type", "")
+	var auth transport.AuthStrategy
+	if authType == "bearer" {
+		auth = &transport.BearerAuth{APIKey: cfg.APIKey}
+	} else if name != providerName {
+		// Non-Anthropic providers default to Bearer auth
+		auth = &transport.BearerAuth{APIKey: cfg.APIKey}
+	} else {
+		// Native Anthropic uses x-api-key + anthropic-version
+		auth = &transport.AnthropicAuth{
+			APIKey:  cfg.APIKey,
+			Version: version,
+		}
 	}
 
 	return &Anthropic{
@@ -70,13 +89,14 @@ func New(cfg config.ProviderConfig, models []types.ModelConfig) (*Anthropic, err
 		baseURL:      baseURL,
 		messagesPath: messagesPath,
 		maxTokens:    maxTokens,
+		name:         name,
 		models:       models,
 	}, nil
 }
 
 // Name returns the provider name.
 func (p *Anthropic) Name() string {
-	return providerName
+	return p.name
 }
 
 // Models returns the list of models this provider supports.

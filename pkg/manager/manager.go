@@ -69,8 +69,12 @@ func registerProviders(cfg *config.Config, registry *provider.Registry) error {
 				p, err = anthropic.New(provCfg, models)
 			}
 		case "alibaba", "baidu", "volcengine", "zhipu", "minimax", "deepseek", "moonshot", "01ai", "baichuan":
-			// Domestic platforms use OpenAI-compatible API, reuse the adapter with custom name
-			p, err = openai.NewWithName(name, provCfg, models)
+			// Domestic platforms: default to OpenAI-compatible, but support api_format: "anthropic"
+			if provCfg.GetExtra("api_format", "") == "anthropic" {
+				p, err = anthropic.NewWithName(name, provCfg, models)
+			} else {
+				p, err = openai.NewWithName(name, provCfg, models)
+			}
 		// TODO: Add other providers (google)
 		default:
 			// Unknown providers: try OpenAI-compatible adapter as fallback

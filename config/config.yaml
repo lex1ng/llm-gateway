@@ -53,11 +53,13 @@ providers:
     proxy: "none"                            # 国内平台，直连
 
   zhipu:
-    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    base_url: "https://open.bigmodel.cn/api/anthropic"
     api_key: "${ZHIPU_API_KEY}"
     platform: "zhipu"
     rate_limit: 300
     proxy: "none"                            # 国内平台，直连
+    extra:
+      api_format: "anthropic"                # 走 Anthropic Messages API 协议
 
   deepseek:
     base_url: "https://api.deepseek.com/v1"

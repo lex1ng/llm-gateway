@@ -162,6 +162,18 @@ model_catalog:
       streaming: true
 
   # ========== Zhipu (GLM) Models ==========
+  - id: "glm-5"
+    provider: "zhipu"
+    tier: "large"
+    context_window: 128000
+    max_output: 4096
+    input_price: 0.05
+    output_price: 0.05
+    capabilities:
+      chat: true
+      tools: true
+      streaming: true
+
   - id: "glm-4-plus"
     provider: "zhipu"
     tier: "large"
