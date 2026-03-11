@@ -32,6 +32,18 @@ type ChatProvider interface {
 	ChatStream(ctx context.Context, req *types.ChatRequest) (<-chan types.StreamEvent, error)
 }
 
+// --- P0.5: Responses API (OpenAI-specific, better for reasoning models) ---
+
+// ResponsesProvider provides the OpenAI Responses API capabilities.
+// This API offers better performance with reasoning models and built-in tools.
+type ResponsesProvider interface {
+	Provider
+	// Responses sends a non-streaming request to the Responses API.
+	Responses(ctx context.Context, req *types.ResponsesRequest) (*types.ResponsesResponse, error)
+	// ResponsesStream sends a streaming request to the Responses API.
+	ResponsesStream(ctx context.Context, req *types.ResponsesRequest) (<-chan types.ResponsesStreamEvent, error)
+}
+
 // --- P1: Embeddings ---
 
 // EmbeddingProvider provides text embedding capabilities.

@@ -33,6 +33,10 @@ func (r *Router) setupRoutes() {
 	chatHandler := handler.NewChatHandler(r.client)
 	r.mux.Handle("/v1/chat/completions", chatHandler)
 
+	// Responses API (OpenAI-specific, better for reasoning models)
+	responsesHandler := handler.NewResponsesHandler(r.client)
+	r.mux.Handle("/v1/responses", responsesHandler)
+
 	// Models listing
 	r.mux.HandleFunc("/v1/models", r.handleListModels)
 

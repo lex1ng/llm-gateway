@@ -17,6 +17,9 @@ type Registry struct {
 	// chatProviders provides type-safe access to ChatProvider instances
 	chatProviders map[string]ChatProvider
 
+	// responsesProviders provides type-safe access to ResponsesProvider instances
+	responsesProviders map[string]ResponsesProvider
+
 	// embeddingProviders provides type-safe access to EmbeddingProvider instances
 	embeddingProviders map[string]EmbeddingProvider
 
@@ -39,6 +42,7 @@ func NewRegistry() *Registry {
 	return &Registry{
 		providers:          make(map[string]Provider),
 		chatProviders:      make(map[string]ChatProvider),
+		responsesProviders: make(map[string]ResponsesProvider),
 		embeddingProviders: make(map[string]EmbeddingProvider),
 		modelIndex:         make(map[string]string),
 		tierIndex:          make(map[types.ModelTier][]TierEntry),
@@ -87,6 +91,9 @@ func (r *Registry) Register(p Provider) error {
 	// Store in type-specific registries
 	if cp, ok := p.(ChatProvider); ok {
 		r.chatProviders[name] = cp
+	}
+	if rp, ok := p.(ResponsesProvider); ok {
+		r.responsesProviders[name] = rp
 	}
 	if ep, ok := p.(EmbeddingProvider); ok {
 		r.embeddingProviders[name] = ep
@@ -147,6 +154,26 @@ func (r *Registry) GetChatProviderByModel(modelID string) (ChatProvider, bool) {
 		return nil, false
 	}
 	return r.chatProviders[providerName], true
+}
+
+// GetResponsesProvider returns a ResponsesProvider by name.
+func (r *Registry) GetResponsesProvider(name string) (ResponsesProvider, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	rp, ok := r.responsesProviders[name]
+	return rp, ok
+}
+
+// GetResponsesProviderByModel returns the ResponsesProvider that supports the given model ID.
+func (r *Registry) GetResponsesProviderByModel(modelID string) (ResponsesProvider, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	providerName, ok := r.modelIndex[modelID]
+	if !ok {
+		return nil, false
+	}
+	return r.responsesProviders[providerName], true
 }
 
 // SetTierRouting sets the tier-based routing entries.
@@ -210,6 +237,7 @@ func (r *Registry) Close() error {
 	// Clear registries
 	r.providers = make(map[string]Provider)
 	r.chatProviders = make(map[string]ChatProvider)
+	r.responsesProviders = make(map[string]ResponsesProvider)
 	r.embeddingProviders = make(map[string]EmbeddingProvider)
 	r.modelIndex = make(map[string]string)
 

@@ -57,6 +57,18 @@ func (c *Client) ChatStream(ctx context.Context, req *types.ChatRequest) (<-chan
 	return c.manager.ChatStream(ctx, req)
 }
 
+// Responses sends a non-streaming request to the OpenAI Responses API.
+// This API provides better performance with reasoning models and built-in tools.
+func (c *Client) Responses(ctx context.Context, req *types.ResponsesRequest) (*types.ResponsesResponse, error) {
+	return c.manager.Responses(ctx, req)
+}
+
+// ResponsesStream sends a streaming request to the OpenAI Responses API.
+// Returns a channel that will receive ResponsesStreamEvent messages until completion.
+func (c *Client) ResponsesStream(ctx context.Context, req *types.ResponsesRequest) (<-chan types.ResponsesStreamEvent, error) {
+	return c.manager.ResponsesStream(ctx, req)
+}
+
 // ListModels returns all available models.
 func (c *Client) ListModels() []types.ModelConfig {
 	return c.manager.ListModels()
