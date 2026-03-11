@@ -306,6 +306,7 @@
 
 | 日期 | 操作者 | 变更 |
 |------|--------|------|
+| 2026-03-11 | Claude | architecture-design.md 全面同步：S6/S8/S9/S10/S11/S12/S13/S14 对齐实际实现，commit `6a7f721` |
 | 2026-03-11 | Claude | README 全面重写，涵盖部署/请求方式/添加厂商指南/配置参考 |
 | 2026-03-11 | Claude | Per-provider HTTP 代理：transport 层 + provider 构造器 + config.yaml |
 | 2026-03-11 | Claude | OpenAI adapter 增强：configurable endpoints、BearerAuth 修复、enable_thinking scope 修复 |
