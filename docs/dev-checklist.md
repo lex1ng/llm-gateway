@@ -53,6 +53,7 @@
 | Sprint 7 | 多媒体 + 异步任务 | ⬜ 0/11 |
 | Sprint 8 | 安全与可观测性 | ⬜ 0/14 |
 | Sprint 9 | 生产化 | ⬜ 0/10 |
+| Sprint 10 | 管理后台与可观测性 | ⬜ 0/23 |
 
 ---
 
@@ -200,15 +201,15 @@
 | 5.1.2 | Registry（注册 + Dispatch 阻塞/非阻塞语义） | `pkg/hook/registry.go` | 5.1.1 | §7.11 | ⬜ | PreRoute/PreCall 可拦截，其余仅记录 |
 | 5.1.3 | Manager 集成 Hook 调度 | `pkg/manager/manager.go` | 5.1.2, 4.6.* | §7.11 | ⬜ | Chat() 16 Phase 完整执行链 |
 | 5.1.4 | SDK Client 支持 WithHook() | `pkg/gateway/client.go` | 5.1.2, 2.4.1 | §12.1 | ⬜ | |
-| 5.1.5 | CostCalculator（费用计算器） | `pkg/manager/cost.go` | 1.2.* | §7.1 | ⬜ | Estimate()+Calculate()，加载 pricing.yaml |
+| 5.1.5 | CostCalculator（费用计算器） | `pkg/manager/cost.go` | 1.2.* | §7.1 | ⬜ | Estimate()+Calculate()，加载 pricing.yaml。→ 并入 10.2.3 |
 | 5.2.1 | QuotaStore 接口定义（支持 token+cost 原子性） | `pkg/manager/quota.go` | 1.2.* | §7.13 | ⬜ | PreConsume(tokens,cost)/Settle(tokens,cost) |
 | 5.2.2 | QuotaManager.PreConsume() / Settle() / Rollback() | `pkg/manager/quota.go` | 5.2.1 | §7.13 | ⬜ | 并发安全；检查日token和月费用双限额 |
 | 5.2.3 | Manager 集成配额（估算token+费用→预扣→调用→结算） | `pkg/manager/manager.go` | 5.1.5, 5.2.2 | §7.13 | ⬜ | 依赖 CostCalculator |
-| 5.3.1 | SpendWriter + SpendUpdate + SpendStorage + WAL 接口 | `pkg/manager/spend_writer.go` | 1.2.* | §7.12 | ⬜ | |
-| 5.3.2 | 批量合并 + 定时 flush + 关闭 flush | `pkg/manager/spend_writer.go` | 5.3.1 | §7.12 | ⬜ | flush失败写WAL兜底 |
-| 5.3.3 | 队列满降级同步写入 + WAL 兜底 | `pkg/manager/spend_writer.go` | 5.3.1 | §7.12 | ⬜ | 不丢失计费数据 |
-| 5.3.4 | Close() 返回 error + 关闭 WAL | `pkg/manager/spend_writer.go` | 5.3.1 | §7.12 | ⬜ | wal.Close() |
-| 5.3.5 | Manager 集成 SpendWriter | `pkg/manager/manager.go` | 5.3.2 | §7.12 | ⬜ | 每次请求完成后 Record |
+| 5.3.1 | SpendWriter + SpendUpdate + SpendStorage + WAL 接口 | `pkg/manager/spend_writer.go` | 1.2.* | §7.12 | ⬜ | → 并入 10.2.2 |
+| 5.3.2 | 批量合并 + 定时 flush + 关闭 flush | `pkg/manager/spend_writer.go` | 5.3.1 | §7.12 | ⬜ | → 并入 10.2.2 |
+| 5.3.3 | 队列满降级同步写入 + WAL 兜底 | `pkg/manager/spend_writer.go` | 5.3.1 | §7.12 | ⬜ | → 并入 10.2.2 |
+| 5.3.4 | Close() 返回 error + 关闭 WAL | `pkg/manager/spend_writer.go` | 5.3.1 | §7.12 | ⬜ | → 并入 10.2.2 |
+| 5.3.5 | Manager 集成 SpendWriter | `pkg/manager/manager.go` | 5.3.2 | §7.12 | ⬜ | → 并入 10.2.5 |
 
 ---
 
@@ -268,10 +269,10 @@
 | 8.1.4 | Auth 中间件 | `api/middleware/auth.go` | 8.1.2 | §10.2 | ⬜ | 从 header 提取 key → Authenticate → ctx 注入 tenant |
 | 8.2.1 | SecretProvider 接口 + EnvSecretProvider | `pkg/secret/provider.go` | 1.3.1 | §10.3 | ⬜ | |
 | 8.2.2 | KMS / Vault SecretProvider（可选） | `pkg/secret/provider.go` | 8.2.1 | §10.3 | ⬜ | |
-| 8.3.1 | SanitizeConfig + SanitizeForLog() | `api/middleware/sanitizer.go` | — | §10.4 | ⬜ | hash/truncate/mask 策略 |
-| 8.4.1 | AuditEvent + AuditLogger 接口 | `pkg/audit/logger.go` | — | §10.5 | ⬜ | |
-| 8.4.2 | FileAuditLogger / StdoutAuditLogger 实现 | `pkg/audit/logger.go` | 8.4.1 | §10.5 | ⬜ | JSON Lines 格式 |
-| 8.4.3 | Audit 中间件 | `api/middleware/audit.go` | 8.4.1 | §10.5 | ⬜ | |
+| 8.3.1 | SanitizeConfig + SanitizeForLog() | `api/middleware/sanitizer.go` | — | §10.4 | ⬜ | hash/truncate/mask 策略。→ 并入 10.2.1 |
+| 8.4.1 | AuditEvent + AuditLogger 接口 | `pkg/audit/logger.go` | — | §10.5 | ⬜ | → 并入 10.2.1 统一请求日志 |
+| 8.4.2 | FileAuditLogger / StdoutAuditLogger 实现 | `pkg/audit/logger.go` | 8.4.1 | §10.5 | ⬜ | → 并入 10.2.2 异步写入器 |
+| 8.4.3 | Audit 中间件 | `api/middleware/audit.go` | 8.4.1 | §10.5 | ⬜ | → 并入 10.2.1 Manager 内置 |
 | 8.5.1 | OpenTelemetry Tracing 初始化 + Span 层级 | `pkg/observability/tracing.go` | — | §7.14.1 | ⬜ | |
 | 8.5.2 | Tracing 中间件 | `api/middleware/tracing.go` | 8.5.1 | §7.14.1 | ⬜ | 注入 trace_id |
 | 8.6.1 | Prometheus 指标定义（全局，不含 tenant_id） | `pkg/observability/metrics.go` | — | §7.14.2 | ⬜ | 避免高基数 |
@@ -300,12 +301,86 @@
 
 ---
 
+## Sprint 10 — 管理后台与可观测性
+
+> 前置依赖：Sprint 2 完成（核心功能）
+>
+> 可选增强依赖：Sprint 4（熔断状态采集）、Sprint 8.1（租户鉴权）
+>
+> **可与 Sprint 3~9 并行开发**（数据采集在 Manager 层，不依赖编排层完成）
+>
+> **设计要点**：数据采集嵌入 Manager 层（非 HTTP 中间件），确保 HTTP 服务和 SDK 直接调用两种模式都能被监控到。
+
+### 10.1 数据存储层
+
+| ID | 任务 | 产出文件 | 前置依赖 | 状态 | 备注 |
+|----|------|---------|---------|------|------|
+| 10.1.1 | Storage 接口定义（RequestLogStore + UsageStore） | `pkg/admin/store.go` | — | ⬜ | CRUD + 聚合查询接口 |
+| 10.1.2 | SQLite 实现 + 自动建表迁移 | `pkg/admin/sqlite.go` | 10.1.1 | ⬜ | 开发/单机场景，零依赖 |
+| 10.1.3 | PostgreSQL 实现（可选） | `pkg/admin/postgres.go` | 10.1.1 | ⬜ | 生产场景，高并发 |
+
+### 10.2 数据采集层
+
+> **关键设计**：采集器嵌入 Manager 层，SDK 和 HTTP 共享同一采集路径。
+>
+> ```
+> HTTP 模式:  Router → Handler → Manager.Chat() → [记录器] → Provider
+> SDK 模式:   client.Chat() → Manager.Chat() → [记录器] → Provider
+> ```
+
+| ID | 任务 | 产出文件 | 前置依赖 | 状态 | 备注 |
+|----|------|---------|---------|------|------|
+| 10.2.1 | 请求日志记录器（Manager 内置，含脱敏） | `pkg/admin/recorder.go` | 10.1.1 | ⬜ | 记录 model/provider/tokens/latency/status/input_preview/output_preview，吸收 8.3.1+8.4.1+8.4.3 |
+| 10.2.2 | 异步批量写入器（chan + batch flush + WAL 兜底） | `pkg/admin/writer.go` | 10.1.2 | ⬜ | 不阻塞请求，吸收 5.3.1~5.3.4+8.4.2 |
+| 10.2.3 | 费用计算引擎（基于 models.yaml 价格） | `pkg/admin/cost.go` | — | ⬜ | 吸收 5.1.5，Calculate(usage, model) → Cost |
+| 10.2.4 | Provider 健康采集器（成功率/延迟/熔断状态） | `pkg/admin/health.go` | 2.3.1 | ⬜ | 定时采样 + 请求级更新 |
+| 10.2.5 | Manager 集成记录器 | `pkg/manager/manager.go` | 10.2.1, 10.2.2 | ⬜ | Chat()/ChatStream() 中嵌入记录逻辑，吸收 5.3.5 |
+| 10.2.6 | SDK WithRequestLog() + WithAdmin() 选项 | `pkg/gateway/options.go`, `client.go` | 10.2.5, 10.3.1 | ⬜ | SDK 用户可选开启记录和管理后台 |
+
+### 10.3 Admin REST API
+
+| ID | 任务 | 产出文件 | 前置依赖 | 状态 | 备注 |
+|----|------|---------|---------|------|------|
+| 10.3.1 | Admin Server + 路由注册 + 简易鉴权 | `api/admin/router.go` | 10.1.2 | ⬜ | 支持挂载到主 Server 或独立启动（SDK 场景） |
+| 10.3.2 | GET /admin/api/dashboard — 概览统计 | `api/admin/handler_dashboard.go` | 10.3.1 | ⬜ | 总请求数/成功率/token 消耗/费用/活跃 provider |
+| 10.3.3 | GET /admin/api/requests — 日志查询（分页/过滤/搜索） | `api/admin/handler_requests.go` | 10.3.1 | ⬜ | 按 model/provider/status/时间范围过滤 |
+| 10.3.4 | GET /admin/api/requests/:id — 请求详情 | `api/admin/handler_requests.go` | 10.3.3 | ⬜ | 含完整 input/output（脱敏后）、token 明细、耗时 |
+| 10.3.5 | GET /admin/api/usage/summary — Token 消耗汇总 | `api/admin/handler_usage.go` | 10.3.1, 10.2.3 | ⬜ | 按模型/Provider/租户维度聚合 |
+| 10.3.6 | GET /admin/api/usage/trend — 消耗趋势（时间序列） | `api/admin/handler_usage.go` | 10.3.5 | ⬜ | 按小时/天/周粒度，支持对比 |
+| 10.3.7 | GET /admin/api/providers — Provider 状态列表 | `api/admin/handler_providers.go` | 10.2.4 | ⬜ | 在线状态/成功率/平均延迟/熔断状态 |
+| 10.3.8 | GET/PUT /admin/api/models — 模型目录管理 | `api/admin/handler_models.go` | 10.3.1 | ⬜ | 查看 + 编辑模型目录和路由规则 |
+
+### 10.4 前端
+
+| ID | 任务 | 产出文件 | 前置依赖 | 状态 | 备注 |
+|----|------|---------|---------|------|------|
+| 10.4.1 | 前端项目初始化（React + Ant Design + Vite） | `web/` | — | ⬜ | Layout + 路由 + API Client + 主题 |
+| 10.4.2 | Dashboard 概览页 | `web/src/pages/Dashboard/` | 10.3.2 | ⬜ | 请求量/Token/费用/成功率卡片 + 趋势图(ECharts) |
+| 10.4.3 | 请求日志查看器 | `web/src/pages/Requests/` | 10.3.3, 10.3.4 | ⬜ | 表格 + 搜索过滤 + 详情抽屉（完整输入输出） |
+| 10.4.4 | Token 消耗分析页 | `web/src/pages/Usage/` | 10.3.5, 10.3.6 | ⬜ | 多维度图表：按模型/Provider/时间 |
+| 10.4.5 | Provider 监控页 | `web/src/pages/Providers/` | 10.3.7 | ⬜ | 状态卡片 + 延迟/成功率折线图 |
+| 10.4.6 | 模型管理页 | `web/src/pages/Models/` | 10.3.8 | ⬜ | 模型列表 + 编辑表单 + 路由规则配置 |
+| 10.4.7 | 前端 embed 打包（go:embed 嵌入二进制） | `api/admin/static.go` | 10.4.2~10.4.6 | ⬜ | 单二进制部署，无需独立前端服务器 |
+
+### Sprint 10 里程碑验证
+
+- [ ] HTTP 模式：请求后在管理后台看到完整日志（model/tokens/latency/status）
+- [ ] SDK 模式：`WithRequestLog() + WithAdmin()` 后同样能看到管理后台
+- [ ] Dashboard 页：总请求数、Token 消耗、费用、成功率实时更新
+- [ ] 请求详情：点开能看到完整的 input/output 摘要和 token 明细
+- [ ] Token 分析：按模型/Provider/时间维度查看消耗趋势
+- [ ] Provider 监控：能看到各 provider 在线状态和成功率
+- [ ] 单二进制部署：`go build` 产出包含前端的单个可执行文件
+
+---
+
 ## 变更日志
 
 > 每次修改本文件时，在此记录时间、操作人/Agent、变更内容。
 
 | 日期 | 操作者 | 变更 |
 |------|--------|------|
+| 2026-03-11 | Claude | 新增 Sprint 10 管理后台与可观测性（23 项任务），数据采集在 Manager 层（HTTP+SDK 双模式支持），吸收 5.1.5/5.3.1-5.3.5/8.3.1/8.4.1-8.4.3 |
 | 2026-03-11 | Claude | architecture-design.md 全面同步：S6/S8/S9/S10/S11/S12/S13/S14 对齐实际实现，commit `6a7f721` |
 | 2026-03-11 | Claude | README 全面重写，涵盖部署/请求方式/添加厂商指南/配置参考 |
 | 2026-03-11 | Claude | Per-provider HTTP 代理：transport 层 + provider 构造器 + config.yaml |
