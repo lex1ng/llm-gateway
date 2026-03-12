@@ -21,7 +21,7 @@
 
 set -eo pipefail
 
-BASE_URL="${GATEWAY_URL:-http://localhost:8080}"
+BASE_URL="${GATEWAY_URL:-http://localhost:8088}"
 MODE="${1:-}"
 MODEL_ARG="${2:-gpt-4o-mini}"
 CONTENT="${3:-Say hello in one word.}"
@@ -129,7 +129,7 @@ if u:
     else
         fail "Chat failed ($model) → HTTP $code"
         echo "  Response:"
-        echo "$body" | python3 -m json.tool 2>/dev/null || echo "  $body"
+        echo "$body" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin),indent=4,ensure_ascii=False))" 2>/dev/null || echo "  $body"
     fi
     echo
 }
@@ -236,7 +236,7 @@ if u:
     else
         fail "Responses API failed ($model) → HTTP $code"
         echo "  Response:"
-        echo "$body" | python3 -m json.tool 2>/dev/null || echo "  $body"
+        echo "$body" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin),indent=4,ensure_ascii=False))" 2>/dev/null || echo "  $body"
     fi
     echo
 }
