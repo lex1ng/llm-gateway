@@ -49,12 +49,17 @@ func (r *Router) SelectChat(req *types.ChatRequest) (provider.ChatProvider, stri
 		return r.selectByModel(req.Model)
 	}
 
-	// Priority 5: Tier routing (default to TierMedium)
-	tier := req.ModelTier
-	if tier == "" {
-		tier = types.TierMedium
+	// Priority 5: Explicit tier routing (only when model_tier is set)
+	if req.ModelTier != "" {
+		return r.selectByTier(req.ModelTier)
 	}
-	return r.selectByTier(tier)
+
+	// No model, no provider, no tier → require explicit specification
+	return nil, "", &types.ProviderError{
+		Code:       types.ErrInvalidRequest,
+		Message:    "model or provider is required (hint: specify \"model\", \"provider\", or \"model_tier\")",
+		StatusCode: 400,
+	}
 }
 
 // selectByModel finds the provider for a model registered in the catalog.

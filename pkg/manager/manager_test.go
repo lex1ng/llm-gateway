@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/lex1ng/llm-gateway/config"
@@ -228,17 +229,21 @@ func TestRouter_SelectByProviderAndTier(t *testing.T) {
 	}
 }
 
-func TestRouter_DefaultToMediumTier(t *testing.T) {
+func TestRouter_EmptyRequestRequiresExplicitSpec(t *testing.T) {
 	m := setupTestManager(t)
 
-	// No model, no provider, no tier → default to medium (per design §7.2)
-	resp, err := m.Chat(context.Background(), &types.ChatRequest{})
-	if err != nil {
-		t.Fatalf("Chat failed: %v", err)
+	// No model, no provider, no tier → should return error requiring explicit specification
+	_, err := m.Chat(context.Background(), &types.ChatRequest{})
+	if err == nil {
+		t.Fatal("expected error for empty request, got nil")
 	}
 
-	if resp.Model != "gpt-4o-mini" {
-		t.Errorf("expected default to medium tier (gpt-4o-mini), got %q", resp.Model)
+	var pe *types.ProviderError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected ProviderError, got %T: %v", err, err)
+	}
+	if pe.Code != types.ErrInvalidRequest {
+		t.Errorf("expected error code %q, got %q", types.ErrInvalidRequest, pe.Code)
 	}
 }
 
