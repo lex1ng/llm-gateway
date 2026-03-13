@@ -267,3 +267,22 @@ func (m *Manager) ListProviders() []types.ProviderStatus {
 func (m *Manager) Close() error {
 	return m.registry.Close()
 }
+
+// Embed handles an embedding request.
+func (m *Manager) Embed(ctx context.Context, req *types.EmbedRequest) (*types.EmbedResponse, error) {
+	// Apply timeout from config if no deadline already set
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && m.config.Manager.Timeout.TotalNonStream > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, m.config.Manager.Timeout.TotalNonStream)
+		defer cancel()
+	}
+
+	// Route to provider
+	ep, model, err := m.router.SelectEmbedding(req)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Model = model
+	return ep.Embed(ctx, req)
+}

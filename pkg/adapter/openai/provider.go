@@ -20,24 +20,26 @@ import (
 )
 
 const (
-	defaultBaseURL       = "https://api.openai.com/v1"
-	defaultChatPath      = "/chat/completions"
-	defaultResponsesPath = "/responses"
-	defaultModelsPath    = "/models"
-	providerName         = "openai"
+	defaultBaseURL        = "https://api.openai.com/v1"
+	defaultChatPath       = "/chat/completions"
+	defaultResponsesPath  = "/responses"
+	defaultModelsPath     = "/models"
+	defaultEmbeddingsPath = "/embeddings"
+	providerName          = "openai"
 )
 
 // OpenAI implements the OpenAI API adapter.
 // Since our internal format is OpenAI-compatible, most requests are nearly pass-through.
 type OpenAI struct {
-	client        *transport.HTTPClient
-	auth          transport.AuthStrategy
-	baseURL       string
-	chatPath      string // configurable chat completions endpoint path
-	responsesPath string // configurable responses endpoint path
-	modelsPath    string // configurable models list endpoint path
-	name          string
-	models        []types.ModelConfig
+	client         *transport.HTTPClient
+	auth           transport.AuthStrategy
+	baseURL        string
+	chatPath       string // configurable chat completions endpoint path
+	responsesPath  string // configurable responses endpoint path
+	modelsPath     string // configurable models list endpoint path
+	embeddingsPath string // configurable embeddings endpoint path
+	name           string
+	models         []types.ModelConfig
 }
 
 // New creates a new OpenAI provider.
@@ -62,20 +64,22 @@ func NewWithName(name string, cfg config.ProviderConfig, models []types.ModelCon
 	chatPath := cfg.GetExtra("chat_path", defaultChatPath)
 	responsesPath := cfg.GetExtra("responses_path", defaultResponsesPath)
 	modelsPath := cfg.GetExtra("models_path", defaultModelsPath)
+	embeddingsPath := cfg.GetExtra("embeddings_path", defaultEmbeddingsPath)
 
 	// OpenAI adapter always uses Bearer auth, regardless of provider name.
 	// (NewAuthStrategy would pick AnthropicAuth/GoogleAuth based on name, which is wrong here)
 	auth := &transport.BearerAuth{APIKey: cfg.APIKey}
 
 	return &OpenAI{
-		client:        transport.NewHTTPClientWithConfig(cfg.Proxy, cfg.Timeout),
-		auth:          auth,
-		baseURL:       baseURL,
-		chatPath:      chatPath,
-		responsesPath: responsesPath,
-		modelsPath:    modelsPath,
-		name:          name,
-		models:        models,
+		client:         transport.NewHTTPClientWithConfig(cfg.Proxy, cfg.Timeout),
+		auth:           auth,
+		baseURL:        baseURL,
+		chatPath:       chatPath,
+		responsesPath:  responsesPath,
+		modelsPath:     modelsPath,
+		embeddingsPath: embeddingsPath,
+		name:           name,
+		models:         models,
 	}, nil
 }
 
@@ -133,4 +137,9 @@ func (p *OpenAI) chatEndpoint() string {
 // responsesEndpoint returns the Responses API endpoint URL.
 func (p *OpenAI) responsesEndpoint() string {
 	return p.baseURL + p.responsesPath
+}
+
+// embeddingsEndpoint returns the embeddings API endpoint URL.
+func (p *OpenAI) embeddingsEndpoint() string {
+	return p.baseURL + p.embeddingsPath
 }

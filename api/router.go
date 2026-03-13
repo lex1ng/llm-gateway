@@ -37,6 +37,10 @@ func (r *Router) setupRoutes() {
 	responsesHandler := handler.NewResponsesHandler(r.client)
 	r.mux.Handle("/v1/responses", responsesHandler)
 
+	// Embeddings
+	embeddingHandler := handler.NewEmbeddingHandler(r.client)
+	r.mux.Handle("/v1/embeddings", embeddingHandler)
+
 	// Models listing
 	r.mux.HandleFunc("/v1/models", r.handleListModels)
 
@@ -45,7 +49,6 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/healthz", r.handleHealth)
 
 	// TODO: Add more routes in later sprints:
-	// - /v1/embeddings (Sprint 6)
 	// - /v1/images/generations (Sprint 7)
 	// - /v1/audio/speech (Sprint 7)
 	// - /v1/audio/transcriptions (Sprint 7)

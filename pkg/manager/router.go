@@ -224,3 +224,50 @@ func (r *Router) selectResponsesByProvider(providerName, modelID string) (provid
 
 	return rp, models[0].ModelID, nil
 }
+
+// SelectEmbedding selects an EmbeddingProvider and model for the given request.
+func (r *Router) SelectEmbedding(req *types.EmbedRequest) (provider.EmbeddingProvider, string, error) {
+	// Priority 1: Explicit provider + model
+	if req.Provider != "" {
+		ep, ok := r.registry.GetEmbeddingProvider(req.Provider)
+		if !ok {
+			return nil, "", &types.ProviderError{
+				Code:       types.ErrProviderNotFound,
+				Message:    "provider does not support Embeddings: " + req.Provider,
+				StatusCode: 400,
+			}
+		}
+		if req.Model != "" {
+			return ep, req.Model, nil
+		}
+		// Use first model
+		models := ep.Models()
+		if len(models) == 0 {
+			return nil, "", &types.ProviderError{
+				Code:       types.ErrModelNotFound,
+				Message:    "no models available for provider: " + req.Provider,
+				StatusCode: 404,
+			}
+		}
+		return ep, models[0].ModelID, nil
+	}
+
+	// Priority 2: Model only → catalog lookup
+	if req.Model != "" {
+		ep, ok := r.registry.GetEmbeddingProviderByModel(req.Model)
+		if ok {
+			return ep, req.Model, nil
+		}
+		return nil, "", &types.ProviderError{
+			Code:       types.ErrModelNotFound,
+			Message:    "embedding model not found: " + req.Model + " (hint: specify \"provider\" field)",
+			StatusCode: 404,
+		}
+	}
+
+	return nil, "", &types.ProviderError{
+		Code:       types.ErrInvalidRequest,
+		Message:    "model is required for embedding requests",
+		StatusCode: 400,
+	}
+}

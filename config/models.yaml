@@ -80,6 +80,21 @@ model_catalog:
       streaming: true
       reasoning: true
 
+  - id: "GLM-5"
+    provider: "anthropic"
+    tier: "large"
+    context_window: 200000
+    max_output: 8192
+    input_price: 0.003
+    output_price: 0.015
+    capabilities:
+      chat: true
+      vision: true
+      tools: true
+      json_mode: true
+      streaming: true
+      reasoning: true
+
   # 需要其他模型时在这里添加，id 填代理商实际的模型名
   # - id: "Claude Sonnet 4"
   #   provider: "anthropic"

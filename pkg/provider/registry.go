@@ -176,6 +176,18 @@ func (r *Registry) GetResponsesProviderByModel(modelID string) (ResponsesProvide
 	return r.responsesProviders[providerName], true
 }
 
+// GetEmbeddingProviderByModel returns the EmbeddingProvider that supports the given model ID.
+func (r *Registry) GetEmbeddingProviderByModel(modelID string) (EmbeddingProvider, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	providerName, ok := r.modelIndex[modelID]
+	if !ok {
+		return nil, false
+	}
+	return r.embeddingProviders[providerName], true
+}
+
 // SetTierRouting sets the tier-based routing entries.
 // Should be called after all providers are registered.
 func (r *Registry) SetTierRouting(routing map[types.ModelTier][]TierEntry) {

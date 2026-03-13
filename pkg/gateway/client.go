@@ -74,6 +74,11 @@ func (c *Client) ListModels() []types.ModelConfig {
 	return c.manager.ListModels()
 }
 
+// Embed generates embeddings for the input text.
+func (c *Client) Embed(ctx context.Context, req *types.EmbedRequest) (*types.EmbedResponse, error) {
+	return c.manager.Embed(ctx, req)
+}
+
 // ListProviders returns the status of all providers.
 func (c *Client) ListProviders() []types.ProviderStatus {
 	return c.manager.ListProviders()
