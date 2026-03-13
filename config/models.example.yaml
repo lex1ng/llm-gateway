@@ -1,0 +1,22 @@
+# LLM Gateway 最小模型目录模板
+# 复制为 models.yaml，按需修改
+#
+# 注意：不在此文件中注册的模型，仍可通过 provider 字段直通调用：
+#   {"provider": "alibaba", "model": "任意模型名", ...}
+# 注册的好处：可以只传 model 不传 provider，自动路由到正确厂商
+
+model_catalog:
+  - id: "qwen-plus"
+    provider: "alibaba"
+    context_window: 131072
+    max_output: 8192
+    capabilities:
+      chat: true
+      streaming: true
+
+  # Embedding 模型示例
+  # - id: "text-embedding-v3"
+  #   provider: "alibaba"
+  #   context_window: 8192
+  #   capabilities:
+  #     embedding: true

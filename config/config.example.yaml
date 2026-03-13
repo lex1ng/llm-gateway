@@ -1,0 +1,18 @@
+# LLM Gateway 最小配置模板
+# 复制为 config.yaml，按需修改
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+# 只需配置你用到的厂商，其余删掉即可
+providers:
+  alibaba:
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key: "${DASHSCOPE_API_KEY}"
+
+# 按需调整超时（以下为默认值，可整段删掉）
+manager:
+  timeout:
+    total_non_stream: 120s
+    total_stream: 300s
