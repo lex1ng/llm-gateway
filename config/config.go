@@ -43,12 +43,6 @@ type ProviderConfig struct {
 	RateLimit int    `yaml:"rate_limit"`         // Requests per minute
 	Timeout   time.Duration `yaml:"timeout,omitempty"`
 
-	// Proxy controls HTTP proxy behavior for this provider:
-	//   - "http://host:port" or "socks5://host:port": use this proxy
-	//   - "none" or "direct": bypass proxy, always direct connect
-	//   - "" (empty): use system environment (HTTP_PROXY/HTTPS_PROXY)
-	Proxy string `yaml:"proxy,omitempty"`
-
 	// Extra holds provider-specific configuration options.
 	// Examples:
 	//   anthropic_version: "2023-06-01"   (Anthropic API version header)

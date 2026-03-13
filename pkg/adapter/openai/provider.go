@@ -71,7 +71,7 @@ func NewWithName(name string, cfg config.ProviderConfig, models []types.ModelCon
 	auth := &transport.BearerAuth{APIKey: cfg.APIKey}
 
 	return &OpenAI{
-		client:         transport.NewHTTPClientWithConfig(cfg.Proxy, cfg.Timeout),
+		client:         transport.NewHTTPClientWithTimeout(cfg.Timeout),
 		auth:           auth,
 		baseURL:        baseURL,
 		chatPath:       chatPath,
@@ -96,16 +96,8 @@ func (p *OpenAI) Models() []types.ModelConfig {
 // Supports returns true if this provider supports the given capability.
 func (p *OpenAI) Supports(cap provider.Capability) bool {
 	switch cap {
-	case provider.CapChat, provider.CapResponses, provider.CapStream, provider.CapTools, provider.CapVision, provider.CapJSONMode:
+	case provider.CapChat, provider.CapResponses, provider.CapStream, provider.CapTools, provider.CapVision, provider.CapJSONMode, provider.CapEmbed:
 		return true
-	case provider.CapEmbed:
-		// Check if any model supports embedding
-		for _, m := range p.models {
-			if m.Capabilities.Embedding {
-				return true
-			}
-		}
-		return false
 	default:
 		return false
 	}

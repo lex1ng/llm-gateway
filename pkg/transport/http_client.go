@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/lex1ng/llm-gateway/pkg/types"
@@ -26,7 +24,6 @@ type HTTPClientConfig struct {
 	Timeout         time.Duration
 	MaxIdleConns    int
 	IdleConnTimeout time.Duration
-	Proxy           string // "http://host:port", "none"/"direct" for no proxy, "" for env default
 }
 
 // NewHTTPClient creates a new HTTPClient with the given configuration.
@@ -42,7 +39,7 @@ func NewHTTPClient(cfg HTTPClientConfig) *HTTPClient {
 	}
 
 	transport := &http.Transport{
-		Proxy:               resolveProxyFunc(cfg.Proxy),
+		Proxy:               http.ProxyFromEnvironment,
 		MaxIdleConns:        cfg.MaxIdleConns,
 		MaxIdleConnsPerHost: cfg.MaxIdleConns,
 		IdleConnTimeout:     cfg.IdleConnTimeout,
@@ -62,34 +59,9 @@ func DefaultHTTPClient() *HTTPClient {
 	return NewHTTPClient(HTTPClientConfig{})
 }
 
-// NewHTTPClientWithProxy creates an HTTPClient with a specific proxy configuration.
-func NewHTTPClientWithProxy(proxy string) *HTTPClient {
-	return NewHTTPClient(HTTPClientConfig{Proxy: proxy})
-}
-
-// NewHTTPClientWithConfig creates an HTTPClient with proxy and timeout configuration.
-func NewHTTPClientWithConfig(proxy string, timeout time.Duration) *HTTPClient {
-	return NewHTTPClient(HTTPClientConfig{Proxy: proxy, Timeout: timeout})
-}
-
-// resolveProxyFunc returns the appropriate proxy function based on the proxy config string.
-//   - "http://host:port" or "socks5://host:port": use fixed proxy
-//   - "none" or "direct": no proxy (direct connect)
-//   - "" (empty): use system environment variables (HTTP_PROXY/HTTPS_PROXY)
-func resolveProxyFunc(proxy string) func(*http.Request) (*url.URL, error) {
-	p := strings.TrimSpace(strings.ToLower(proxy))
-	switch {
-	case p == "" :
-		return http.ProxyFromEnvironment
-	case p == "none" || p == "direct":
-		return nil // no proxy
-	default:
-		proxyURL, err := url.Parse(proxy)
-		if err != nil {
-			return http.ProxyFromEnvironment // fallback on parse error
-		}
-		return http.ProxyURL(proxyURL)
-	}
+// NewHTTPClientWithTimeout creates an HTTPClient with a specific timeout.
+func NewHTTPClientWithTimeout(timeout time.Duration) *HTTPClient {
+	return NewHTTPClient(HTTPClientConfig{Timeout: timeout})
 }
 
 // Do sends an HTTP request and returns the response.
