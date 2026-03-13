@@ -9,6 +9,8 @@
 #   ./scripts/test-api.sh stream alibaba:qwen-turbo     # Stream with provider:model
 #   ./scripts/test-api.sh responses gpt-4o              # Responses API
 #   ./scripts/test-api.sh responses-stream              # Responses API (streaming)
+#   ./scripts/test-api.sh embed alibaba:text-embedding-v3       # Embedding with provider:model
+#   ./scripts/test-api.sh embed text-embedding-v3 "自定义文本"  # Embedding with custom text
 #   ./scripts/test-api.sh errors                        # Error scenario tests
 #   ./scripts/test-api.sh all                           # Run all tests
 #
@@ -301,6 +303,62 @@ if not got_content:
     echo
 }
 
+# --- Embeddings ---
+test_embedding() {
+    local model="$1"
+    local text="$2"
+    info "Testing embedding: ${PROVIDER:+provider=$PROVIDER }model=$model"
+    echo "  Input: $text"
+
+    # Build JSON body — use provider field if specified
+    local body
+    body=$(python3 -c "
+import json
+d = {'model': '$model', 'input': ['$text', 'second sentence for comparison']}
+provider = '$PROVIDER'
+if provider:
+    d['provider'] = provider
+print(json.dumps(d, ensure_ascii=False))
+")
+
+    local resp code rbody
+    resp=$(curl -s -w "\n%{http_code}" --max-time 30 "$BASE_URL/v1/embeddings" \
+        -H "Content-Type: application/json" \
+        -d "$body" 2>&1) || true
+
+    code=$(echo "$resp" | tail -1)
+    rbody=$(echo "$resp" | sed '$d')
+
+    if [[ "$code" == "200" ]]; then
+        python3 -c "
+import sys, json
+resp = json.loads('''$( echo "$rbody" | sed "s/'''/\\\\'\\\\'\\\\'/" )''')
+data = resp.get('data', [])
+model = resp.get('model', 'unknown')
+usage = resp.get('usage', {})
+print(f'  Model: {model}')
+print(f'  Vectors: {len(data)}')
+for i, item in enumerate(data):
+    vec = item.get('embedding', [])
+    dims = len(vec)
+    preview = vec[:3] if dims > 3 else vec
+    preview_str = ', '.join(f'{v:.6f}' for v in preview)
+    print(f'  [{i}] {dims} dims → [{preview_str}, ...]')
+if usage:
+    print(f'  [tokens: prompt={usage.get(\"prompt_tokens\",0)}, total={usage.get(\"total_tokens\",0)}]')
+" 2>/dev/null && ok "Embedding completed ($model)" || {
+            # Fallback: simpler parsing if the above fails
+            ok "Embedding response ($model) → 200"
+            echo "$rbody" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin),indent=2,ensure_ascii=False))" 2>/dev/null | head -20
+        }
+    else
+        fail "Embedding failed ($model) → HTTP $code"
+        echo "  Response:"
+        echo "$rbody" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin),indent=4,ensure_ascii=False))" 2>/dev/null || echo "  $rbody"
+    fi
+    echo
+}
+
 # --- Error Scenario Tests ---
 test_errors() {
     local passed=0
@@ -402,6 +460,7 @@ show_help() {
     echo "  $0 stream [provider:]model [prompt]       # Streaming chat"
     echo "  $0 responses [provider:]model [prompt]    # Responses API (non-streaming)"
     echo "  $0 responses-stream [provider:]model [prompt]  # Responses API (streaming)"
+    echo "  $0 embed [provider:]model [text]          # Embeddings"
     echo "  $0 errors                                 # Error scenario tests"
     echo "  $0 all [provider:]model [prompt]          # Run all tests"
     echo ""
@@ -415,6 +474,8 @@ show_help() {
     echo "  $0 stream alibaba:qwen-turbo 'Write a haiku'"
     echo "  $0 chat openai:gpt-4o 'Tell me a joke'"
     echo "  $0 responses gpt-4o 'What is 2+2?'"
+    echo "  $0 embed alibaba:text-embedding-v3        # Embedding with explicit provider"
+    echo "  $0 embed alibaba:text-embedding-v3 '自定义文本'"
     echo "  $0 errors"
     echo "  $0 all alibaba:qwen-turbo"
     echo ""
@@ -446,6 +507,9 @@ case "$MODE" in
     responses-stream)
         test_responses_stream "$MODEL" "$CONTENT"
         ;;
+    embed|embedding|embeddings)
+        test_embedding "$MODEL" "$CONTENT"
+        ;;
     errors)
         test_errors
         ;;
@@ -454,6 +518,7 @@ case "$MODE" in
         test_chat_stream "$MODEL" "$CONTENT"
         test_responses "$MODEL" "$CONTENT"
         test_responses_stream "$MODEL" "$CONTENT"
+        test_embedding "$MODEL" "$CONTENT"
         test_errors
         ;;
     help|-h|--help)

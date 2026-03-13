@@ -227,9 +227,9 @@
 | 6.2.1 | OpenAI 适配器支持 tools 参数 | `pkg/adapter/openai/chat.go` | 6.1.1 | §6.1 | ⬜ | |
 | 6.2.2 | Anthropic 适配器支持 tools 参数 | `pkg/adapter/anthropic/chat.go` | 6.1.2 | §6.2 | ⬜ | tool_choice 格式转换 |
 | 6.2.3 | Compatible 适配器支持 tools 参数 | `pkg/adapter/compatible/chat.go` | 6.1.1 | §6.4 | ⬜ | 与 OpenAI 相同 |
-| 6.3.1 | EmbeddingProvider 接口实现（OpenAI + Compatible） | `pkg/adapter/openai/embedding.go`, `compatible/embedding.go` | 2.1.1 | §5.1 | ⬜ | |
+| 6.3.1 | EmbeddingProvider 接口实现（OpenAI + Compatible） | `pkg/adapter/openai/embedding.go`, `compatible/embedding.go` | 2.1.1 | §5.1 | ✅ | `6f73e05` OpenAI 适配器实现 |
 | 6.3.2 | Google Embeddings 适配 | `pkg/adapter/google/embedding.go` | 3.1.2 | §6.3 | ⬜ | embedContent 格式 |
-| 6.3.3 | Embedding HTTP Handler | `api/handler/embedding.go` | 6.3.1 | §12 | ⬜ | POST /v1/embeddings |
+| 6.3.3 | Embedding HTTP Handler | `api/handler/embedding.go` | 6.3.1 | §12 | ✅ | `6f73e05` POST /v1/embeddings + 路由注册 |
 
 ---
 
