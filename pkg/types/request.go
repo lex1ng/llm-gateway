@@ -42,7 +42,15 @@ type ChatRequest struct {
 
 // ResponseFormat specifies the format of the response.
 type ResponseFormat struct {
-	Type string `json:"type"` // "text" or "json_object"
+	Type       string      `json:"type"`                  // "text", "json_object", or "json_schema"
+	JSONSchema *JSONSchema `json:"json_schema,omitempty"` // Required when type is "json_schema"
+}
+
+// JSONSchema defines a JSON Schema for structured output.
+type JSONSchema struct {
+	Name   string `json:"name"`             // Schema name (required by OpenAI)
+	Strict bool   `json:"strict"`           // Enable strict schema adherence
+	Schema any    `json:"schema"`           // JSON Schema object
 }
 
 // Tool and ToolFunction are defined in tool.go

@@ -78,6 +78,13 @@ func (p *OpenAI) buildChatRequest(req *types.ChatRequest) *openAIChatRequest {
 		openAIReq.ResponseFormat = &openAIResponseFormat{
 			Type: req.ResponseFormat.Type,
 		}
+		if req.ResponseFormat.Type == "json_schema" && req.ResponseFormat.JSONSchema != nil {
+			openAIReq.ResponseFormat.JSONSchema = &openAIJSONSchema{
+				Name:   req.ResponseFormat.JSONSchema.Name,
+				Strict: req.ResponseFormat.JSONSchema.Strict,
+				Schema: req.ResponseFormat.JSONSchema.Schema,
+			}
+		}
 	}
 
 	// Pass through platform-specific extra fields
@@ -248,7 +255,14 @@ type openAIFunctionCall struct {
 }
 
 type openAIResponseFormat struct {
-	Type string `json:"type"`
+	Type       string          `json:"type"`
+	JSONSchema *openAIJSONSchema `json:"json_schema,omitempty"`
+}
+
+type openAIJSONSchema struct {
+	Name   string `json:"name"`
+	Strict bool   `json:"strict"`
+	Schema any    `json:"schema"`
 }
 
 type openAIChatResponse struct {
