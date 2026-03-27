@@ -44,12 +44,12 @@ providers:
     rate_limit: 300
 
   zhipu:
-    base_url: "https://open.bigmodel.cn/api/anthropic"
+    base_url: "https://open.bigmodel.cn/api/coding/paas/v4"
     api_key: "${ZHIPU_API_KEY}"
     platform: "zhipu"
     rate_limit: 300
     extra:
-      api_format: "anthropic"                # 走 Anthropic Messages API 协议
+      api_format: "openai"                # 走 Anthropic Messages API 协议
 
   deepseek:
     base_url: "https://api.deepseek.com/v1"

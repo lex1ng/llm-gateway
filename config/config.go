@@ -477,7 +477,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Server.ReadTimeout = 30 * time.Second
 	}
 	if cfg.Server.WriteTimeout == 0 {
-		cfg.Server.WriteTimeout = 30 * time.Second
+		cfg.Server.WriteTimeout = 5 * time.Minute // LLM requests can take long (reasoning models)
 	}
 	if cfg.Server.IdleTimeout == 0 {
 		cfg.Server.IdleTimeout = 120 * time.Second
