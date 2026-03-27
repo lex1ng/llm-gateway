@@ -96,6 +96,16 @@ func (p *OpenAI) readStreamEvents(ctx context.Context, body io.ReadCloser, event
 				}
 			}
 
+			// Reasoning content delta (thinking models: GLM-5, o1, etc.)
+			if choice.Delta.ReasoningContent != "" {
+				if !sendEvent(ctx, events, types.StreamEvent{
+					Type:  types.StreamEventReasoningDelta,
+					Delta: choice.Delta.ReasoningContent,
+				}) {
+					return
+				}
+			}
+
 			// Tool call delta
 			if len(choice.Delta.ToolCalls) > 0 {
 				for _, tc := range choice.Delta.ToolCalls {
@@ -159,7 +169,8 @@ type openAIStreamChoice struct {
 }
 
 type openAIStreamDelta struct {
-	Role      string           `json:"role,omitempty"`
-	Content   string           `json:"content,omitempty"`
-	ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
+	Role             string           `json:"role,omitempty"`
+	Content          string           `json:"content,omitempty"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
 }

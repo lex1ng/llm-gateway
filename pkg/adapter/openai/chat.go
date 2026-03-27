@@ -147,6 +147,7 @@ func (p *OpenAI) buildChatResponse(resp *openAIChatResponse) *types.ChatResponse
 		if content, ok := choice.Message.Content.(string); ok {
 			result.Content = content
 		}
+		result.ReasoningContent = choice.Message.ReasoningContent
 		result.FinishReason = choice.FinishReason
 
 		// Convert tool calls
@@ -214,11 +215,12 @@ func (r *openAIChatRequest) MarshalJSON() ([]byte, error) {
 }
 
 type openAIMessage struct {
-	Role       string          `json:"role"`
-	Content    any             `json:"content"` // string or []contentPart
-	Name       string          `json:"name,omitempty"`
-	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Role             string          `json:"role"`
+	Content          any             `json:"content"` // string or []contentPart
+	ReasoningContent string          `json:"reasoning_content,omitempty"`
+	Name             string          `json:"name,omitempty"`
+	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string          `json:"tool_call_id,omitempty"`
 }
 
 type openAIContentPart struct {

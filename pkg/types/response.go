@@ -2,27 +2,29 @@ package types
 
 // ChatResponse represents a chat completion response.
 type ChatResponse struct {
-	ID           string     `json:"id"`
-	Model        string     `json:"model"`
-	Provider     string     `json:"provider"`
-	Content      string     `json:"content"`
-	FinishReason string     `json:"finish_reason"` // stop, length, tool_calls, content_filter
-	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
-	Usage        TokenUsage `json:"usage"`
-	LatencyMs    int64      `json:"latency_ms"`
-	Cached       bool       `json:"cached,omitempty"`
-	CreatedAt    int64      `json:"created_at"`
+	ID               string     `json:"id"`
+	Model            string     `json:"model"`
+	Provider         string     `json:"provider"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"` // Thinking/reasoning output (GLM-5, o1, etc.)
+	FinishReason     string     `json:"finish_reason"`               // stop, length, tool_calls, content_filter
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	Usage            TokenUsage `json:"usage"`
+	LatencyMs        int64      `json:"latency_ms"`
+	Cached           bool       `json:"cached,omitempty"`
+	CreatedAt        int64      `json:"created_at"`
 }
 
 // StreamEventType defines the type of streaming event.
 type StreamEventType string
 
 const (
-	StreamEventContentDelta  StreamEventType = "content_delta"
-	StreamEventToolCallDelta StreamEventType = "tool_call_delta"
-	StreamEventUsage         StreamEventType = "usage"
-	StreamEventDone          StreamEventType = "done"
-	StreamEventError         StreamEventType = "error"
+	StreamEventContentDelta   StreamEventType = "content_delta"
+	StreamEventReasoningDelta StreamEventType = "reasoning_delta"
+	StreamEventToolCallDelta  StreamEventType = "tool_call_delta"
+	StreamEventUsage          StreamEventType = "usage"
+	StreamEventDone           StreamEventType = "done"
+	StreamEventError          StreamEventType = "error"
 )
 
 // StreamEvent represents a unified streaming event.

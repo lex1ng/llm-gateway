@@ -113,9 +113,10 @@ type openAIChoice struct {
 }
 
 type openAIMessage struct {
-	Role      string              `json:"role"`
-	Content   string              `json:"content"`
-	ToolCalls []openAIToolCall    `json:"tool_calls,omitempty"`
+	Role             string              `json:"role"`
+	Content          string              `json:"content"`
+	ReasoningContent string              `json:"reasoning_content,omitempty"`
+	ToolCalls        []openAIToolCall    `json:"tool_calls,omitempty"`
 }
 
 type openAIToolCall struct {
@@ -151,9 +152,10 @@ type openAIStreamChoice struct {
 }
 
 type openAIStreamDelta struct {
-	Role      string           `json:"role,omitempty"`
-	Content   string           `json:"content,omitempty"`
-	ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
+	Role             string           `json:"role,omitempty"`
+	Content          string           `json:"content,omitempty"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
 }
 
 func convertToOpenAIResponse(resp *types.ChatResponse) *openAIChatCompletionResponse {
@@ -166,8 +168,9 @@ func convertToOpenAIResponse(resp *types.ChatResponse) *openAIChatCompletionResp
 			{
 				Index: 0,
 				Message: openAIMessage{
-					Role:    "assistant",
-					Content: resp.Content,
+					Role:             "assistant",
+					Content:          resp.Content,
+					ReasoningContent: resp.ReasoningContent,
 				},
 				FinishReason: resp.FinishReason,
 			},
@@ -213,6 +216,8 @@ func convertStreamEventToChunk(event *types.StreamEvent) *openAIStreamChunk {
 	switch event.Type {
 	case types.StreamEventContentDelta:
 		chunk.Choices[0].Delta.Content = event.Delta
+	case types.StreamEventReasoningDelta:
+		chunk.Choices[0].Delta.ReasoningContent = event.Delta
 	case types.StreamEventToolCallDelta:
 		if event.ToolCall != nil {
 			chunk.Choices[0].Delta.ToolCalls = []openAIToolCall{
