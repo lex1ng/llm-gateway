@@ -15,7 +15,7 @@
 #   ./scripts/test-api.sh all                           # Run all tests
 #
 # Environment:
-#   GATEWAY_URL  - Gateway base URL (default: http://localhost:8080)
+#   GATEWAY_URL  - Gateway base URL (default: http://localhost:8088)
 #
 # Prerequisites:
 #   1. Configure config/.env with your API keys
@@ -26,8 +26,8 @@ set -eo pipefail
 BASE_URL="${GATEWAY_URL:-http://localhost:8088}"
 MODE="${1:-}"
 MODEL_ARG="${2:-gpt-4o-mini}"
-CONTENT="${3:-Say hello in one word.}"
-MAX_TOKENS="${MAX_TOKENS:-20}"
+CONTENT="${3:-介绍朱元璋，用两句话}"
+MAX_TOKENS="${MAX_TOKENS:-100}"
 
 # Parse provider:model format (e.g. "alibaba:qwen3-0.6b")
 PROVIDER=""
@@ -56,44 +56,74 @@ ok()    { echo -e "${GREEN}[PASS]${NC} $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 
+# Reliable HTTP request: writes body to temp file, stderr to err file, returns HTTP code
+# Usage: code=$(do_curl TMPFILE curl_args...)
+do_curl() {
+    local tmpfile="$1"; shift
+    local errfile="${tmpfile}.err"
+    local http_code
+    http_code=$(curl -sS -o "$tmpfile" -w "%{http_code}" "$@" 2>"$errfile") || http_code="000"
+    # If HTTP 000 (connection failure), append curl error to body file for diagnosis
+    if [[ "$http_code" == "000" ]]; then
+        local curl_err
+        curl_err=$(cat "$errfile" 2>/dev/null)
+        if [[ -n "$curl_err" ]]; then
+            echo "$curl_err" >> "$tmpfile"
+        fi
+    fi
+    rm -f "$errfile"
+    echo "$http_code"
+}
+
 # --- Health Check ---
 test_health() {
     info "Testing health endpoint..."
-    local resp code body
-    resp=$(curl -s -w "\n%{http_code}" "$BASE_URL/health" 2>&1) || true
-    code=$(echo "$resp" | tail -1)
-    body=$(echo "$resp" | sed '$d')
+    local tmpfile code
+    tmpfile=$(mktemp)
+    code=$(do_curl "$tmpfile" --max-time 10 "$BASE_URL/health")
 
     if [[ "$code" == "200" ]]; then
-        ok "GET /health → 200: $body"
+        ok "GET /health → 200: $(cat "$tmpfile")"
     else
         fail "GET /health → $code"
-        echo "  Response: $body"
+        echo "  Response: $(cat "$tmpfile")"
         echo "  Is the server running at $BASE_URL?"
+        rm -f "$tmpfile"
         exit 1
     fi
+    rm -f "$tmpfile"
 }
 
 # --- List Models ---
 test_list_models() {
     info "Listing available models..."
-    local resp count
-    resp=$(curl -s "$BASE_URL/v1/models" 2>&1) || true
-    count=$(echo "$resp" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('data',[])))" 2>/dev/null || echo "0")
+    local tmpfile code
+    tmpfile=$(mktemp)
+    code=$(do_curl "$tmpfile" --max-time 10 "$BASE_URL/v1/models")
 
-    if [[ "$count" -gt 0 ]]; then
-        ok "GET /v1/models → $count models in catalog"
-        echo "$resp" | python3 -c "
-import sys, json
-data = json.load(sys.stdin).get('data', [])
-for m in data[:10]:  # Show first 10
-    print(f\"  - {m['id']} (owned_by: {m['owned_by']})\")" 2>/dev/null
-        if [[ "$count" -gt 10 ]]; then
-            echo "  ... and $((count - 10)) more"
-        fi
-    else
-        warn "GET /v1/models → no models in catalog (passthrough still works)"
+    if [[ "$code" != "200" ]]; then
+        warn "GET /v1/models → HTTP $code"
+        rm -f "$tmpfile"
+        echo
+        return
     fi
+
+    python3 -c "
+import sys, json
+with open('$tmpfile') as f:
+    resp = json.load(f)
+data = resp.get('data', [])
+if data:
+    print(f'  \033[0;32m[PASS]\033[0m GET /v1/models → {len(data)} models')
+    for m in data[:10]:
+        print(f\"  - {m['id']} (owned_by: {m.get('owned_by','?')})\")
+    if len(data) > 10:
+        print(f'  ... and {len(data)-10} more')
+else:
+    print('  \033[1;33m[WARN]\033[0m GET /v1/models → no models in catalog (passthrough still works)')
+" 2>/dev/null || warn "GET /v1/models → parse error"
+
+    rm -f "$tmpfile"
     echo
 }
 
@@ -104,35 +134,78 @@ test_chat() {
     info "Testing chat: ${PROVIDER:+provider=$PROVIDER }model=$model"
     echo "  Prompt: $content"
 
-    local resp code body
-    resp=$(curl -s -w "\n%{http_code}" --max-time 60 "$BASE_URL/v1/chat/completions" \
+    local tmpfile code
+    tmpfile=$(mktemp)
+    code=$(do_curl "$tmpfile" --max-time 120 \
+        "$BASE_URL/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -d "{
             $(provider_json)
             \"model\": \"$model\",
             \"messages\": [{\"role\": \"user\", \"content\": \"$content\"}],
             \"max_tokens\": $MAX_TOKENS
-        }" 2>&1) || true
-
-    code=$(echo "$resp" | tail -1)
-    body=$(echo "$resp" | sed '$d')
+        }")
 
     if [[ "$code" == "200" ]]; then
-        local reply
-        reply=$(echo "$body" | python3 -c "import sys,json; print(json.load(sys.stdin)['choices'][0]['message']['content'])" 2>/dev/null || echo "(parse error)")
-        ok "Chat response ($model):"
-        echo "  $reply"
-        # Show usage
-        echo "$body" | python3 -c "
+        python3 -c "
 import sys, json
-u = json.load(sys.stdin).get('usage', {})
+with open('$tmpfile') as f:
+    resp = json.load(f)
+choices = resp.get('choices', [])
+if choices:
+    msg = choices[0].get('message', {})
+    content = msg.get('content', '')
+    reasoning = msg.get('reasoning_content', '')
+    if reasoning:
+        print(f'  \033[0;36m[思考过程]\033[0m')
+        for line in reasoning.strip().split('\n')[:10]:
+            print(f'  {line}')
+        if len(reasoning.strip().split('\n')) > 10:
+            print(f'  ... (truncated)')
+    if content:
+        print(f'  \033[0;32m[PASS]\033[0m Chat response ($model):')
+        for line in content.strip().split('\n'):
+            print(f'  {line}')
+    elif reasoning:
+        print(f'  \033[1;33m[WARN]\033[0m Chat content is empty (all tokens used for reasoning, try increasing MAX_TOKENS)')
+    else:
+        print(f'  \033[1;33m[WARN]\033[0m Chat response ($model): (empty content)')
+        print(f'  Raw response:')
+        print(f'  {json.dumps(resp, indent=2, ensure_ascii=False)[:500]}')
+else:
+    print(f'  \033[0;31m[FAIL]\033[0m Chat response ($model): no choices in response')
+    print(f'  Raw: {json.dumps(resp, indent=2, ensure_ascii=False)[:500]}')
+
+u = resp.get('usage', {})
 if u:
-    print(f\"  [tokens: prompt={u.get('prompt_tokens',0)}, completion={u.get('completion_tokens',0)}, total={u.get('total_tokens',0)}]\")" 2>/dev/null || true
+    print(f'  [tokens: prompt={u.get(\"prompt_tokens\",0)}, completion={u.get(\"completion_tokens\",0)}, total={u.get(\"total_tokens\",0)}]')
+" 2>/dev/null || {
+            fail "Chat response parse error ($model)"
+            echo "  Raw response:"
+            cat "$tmpfile" | head -c 500
+            echo
+        }
     else
-        fail "Chat failed ($model) → HTTP $code"
-        echo "  Response:"
-        echo "$body" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin),indent=4,ensure_ascii=False))" 2>/dev/null || echo "  $body"
+        if [[ "$code" == "000" ]]; then
+            fail "Chat failed ($model) → connection error (HTTP 000)"
+            echo "  Curl error: $(cat "$tmpfile" 2>/dev/null || echo 'unknown')"
+            echo "  Possible causes:"
+            echo "    - Server WriteTimeout too short (default 30s, reasoning models need longer)"
+            echo "    - Network timeout / connection reset"
+            echo "    - Server crashed or OOM killed"
+            echo "  Check server logs: journalctl -u llm-gateway --since '1 min ago'"
+        else
+            fail "Chat failed ($model) → HTTP $code"
+            echo "  Response:"
+            python3 -c "
+import json
+with open('$tmpfile') as f:
+    print(json.dumps(json.load(f), indent=2, ensure_ascii=False))
+" 2>/dev/null || cat "$tmpfile"
+        fi
     fi
+
+    rm -f "$tmpfile"
     echo
 }
 
@@ -145,7 +218,8 @@ test_chat_stream() {
     echo -n "  Response: "
 
     local exit_code=0
-    curl -s -N --max-time 60 "$BASE_URL/v1/chat/completions" \
+    local errfile=$(mktemp)
+    curl -sS -N --max-time 120 "$BASE_URL/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -d "{
             $(provider_json)
@@ -153,9 +227,10 @@ test_chat_stream() {
             \"messages\": [{\"role\": \"user\", \"content\": \"$content\"}],
             \"max_tokens\": $MAX_TOKENS,
             \"stream\": true
-        }" 2>/dev/null | python3 -u -c "
+        }" 2>"$errfile" | python3 -u -c "
 import sys, json
 got_content = False
+in_reasoning = False
 for line in sys.stdin:
     line = line.strip()
     if not line.startswith('data: '):
@@ -165,15 +240,27 @@ for line in sys.stdin:
         break
     try:
         d = json.loads(data)
-        # Check for error
         if 'error' in d:
-            print(f\"\\nError: {d['error'].get('message', d['error'])}\", file=sys.stderr)
+            print(f\"\nError: {d['error'].get('message', d['error'])}\", file=sys.stderr)
             sys.exit(1)
-        c = d.get('choices',[{}])[0].get('delta',{}).get('content','')
+        delta = d.get('choices',[{}])[0].get('delta',{})
+        # Reasoning content (thinking)
+        rc = delta.get('reasoning_content','')
+        if rc:
+            if not in_reasoning:
+                print('\n  \033[0;36m[思考中...]\033[0m ', end='', flush=True)
+                in_reasoning = True
+            print(rc, end='', flush=True)
+            got_content = True
+        # Actual content
+        c = delta.get('content','')
         if c:
+            if in_reasoning:
+                print('\n  \033[0;32m[回答]\033[0m ', end='', flush=True)
+                in_reasoning = False
             print(c, end='', flush=True)
             got_content = True
-    except Exception as e:
+    except Exception:
         pass
 if not got_content:
     print('(no content received)', end='')
@@ -185,7 +272,13 @@ if not got_content:
         ok "Stream completed ($model)"
     else
         fail "Stream failed ($model)"
+        local curl_err
+        curl_err=$(cat "$errfile" 2>/dev/null)
+        if [[ -n "$curl_err" ]]; then
+            echo "  Curl error: $curl_err"
+        fi
     fi
+    rm -f "$errfile"
     echo
 }
 
@@ -196,50 +289,60 @@ test_responses() {
     info "Testing responses API: ${PROVIDER:+provider=$PROVIDER }model=$model"
     echo "  Prompt: $content"
 
-    local resp code body
-    resp=$(curl -s -w "\n%{http_code}" --max-time 60 "$BASE_URL/v1/responses" \
+    local tmpfile code
+    tmpfile=$(mktemp)
+    code=$(do_curl "$tmpfile" --max-time 60 \
+        "$BASE_URL/v1/responses" \
         -H "Content-Type: application/json" \
         -d "{
             $(provider_json)
             \"model\": \"$model\",
             \"input\": \"$content\",
             \"max_output_tokens\": $MAX_TOKENS
-        }" 2>&1) || true
-
-    code=$(echo "$resp" | tail -1)
-    body=$(echo "$resp" | sed '$d')
+        }")
 
     if [[ "$code" == "200" ]]; then
-        local reply status
-        reply=$(echo "$body" | python3 -c "
-import sys, json
-resp = json.load(sys.stdin)
+        python3 -c "
+import json
+with open('$tmpfile') as f:
+    resp = json.load(f)
 output = resp.get('output', [])
+status = resp.get('status', 'unknown')
+text = ''
 for item in output:
     if item.get('type') == 'message':
         for part in item.get('content', []):
             if part.get('type') == 'output_text':
-                print(part.get('text', ''))
+                text = part.get('text', '')
                 break
         break
+if text:
+    print(f'  \033[0;32m[PASS]\033[0m Responses API ($model) [status={status}]:')
+    for line in text.strip().split('\n'):
+        print(f'  {line}')
 else:
-    print('(no message output)')
-" 2>/dev/null || echo "(parse error)")
-        status=$(echo "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
-        ok "Responses API ($model) [status=$status]:"
-        echo "  $reply"
-        # Show usage
-        echo "$body" | python3 -c "
-import sys, json
-u = json.load(sys.stdin).get('usage', {})
+    print(f'  \033[1;33m[WARN]\033[0m Responses API ($model): (no message output)')
+    print(f'  Raw: {json.dumps(resp, indent=2, ensure_ascii=False)[:500]}')
+
+u = resp.get('usage', {})
 if u:
-    print(f\"  [tokens: input={u.get('input_tokens',0)}, output={u.get('output_tokens',0)}, total={u.get('total_tokens',0)}]\")
-" 2>/dev/null || true
+    print(f'  [tokens: input={u.get(\"input_tokens\",0)}, output={u.get(\"output_tokens\",0)}, total={u.get(\"total_tokens\",0)}]')
+" 2>/dev/null || {
+            fail "Responses API parse error ($model)"
+            cat "$tmpfile" | head -c 500
+            echo
+        }
     else
         fail "Responses API failed ($model) → HTTP $code"
         echo "  Response:"
-        echo "$body" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin),indent=4,ensure_ascii=False))" 2>/dev/null || echo "  $body"
+        python3 -c "
+import json
+with open('$tmpfile') as f:
+    print(json.dumps(json.load(f), indent=2, ensure_ascii=False))
+" 2>/dev/null || cat "$tmpfile"
     fi
+
+    rm -f "$tmpfile"
     echo
 }
 
@@ -266,7 +369,6 @@ got_content = False
 for line in sys.stdin:
     line = line.strip()
     if not line.startswith('data: '):
-        # Also check for 'event:' lines (Responses API uses named events)
         continue
     data = line[6:]
     if data == '[DONE]':
@@ -274,13 +376,11 @@ for line in sys.stdin:
     try:
         d = json.loads(data)
         event_type = d.get('type', '')
-        # Check for error event
         if event_type == 'error' or 'error' in d:
             err = d.get('error', {})
             msg = err.get('message', err) if isinstance(err, dict) else err
             print(f'\nError: {msg}', file=sys.stderr)
             sys.exit(1)
-        # Extract text delta from content_part.delta events
         if event_type == 'response.content_part.delta':
             delta = d.get('delta', {})
             text = delta.get('text', '')
@@ -310,9 +410,9 @@ test_embedding() {
     info "Testing embedding: ${PROVIDER:+provider=$PROVIDER }model=$model"
     echo "  Input: $text"
 
-    # Build JSON body — use provider field if specified
-    local body
-    body=$(python3 -c "
+    # Build JSON body
+    local json_body
+    json_body=$(python3 -c "
 import json
 d = {'model': '$model', 'input': ['$text', 'second sentence for comparison']}
 provider = '$PROVIDER'
@@ -321,18 +421,18 @@ if provider:
 print(json.dumps(d, ensure_ascii=False))
 ")
 
-    local resp code rbody
-    resp=$(curl -s -w "\n%{http_code}" --max-time 30 "$BASE_URL/v1/embeddings" \
+    local tmpfile code
+    tmpfile=$(mktemp)
+    code=$(do_curl "$tmpfile" --max-time 30 \
+        "$BASE_URL/v1/embeddings" \
         -H "Content-Type: application/json" \
-        -d "$body" 2>&1) || true
-
-    code=$(echo "$resp" | tail -1)
-    rbody=$(echo "$resp" | sed '$d')
+        -d "$json_body")
 
     if [[ "$code" == "200" ]]; then
         python3 -c "
-import sys, json
-resp = json.loads('''$( echo "$rbody" | sed "s/'''/\\\\'\\\\'\\\\'/" )''')
+import json
+with open('$tmpfile') as f:
+    resp = json.load(f)
 data = resp.get('data', [])
 model = resp.get('model', 'unknown')
 usage = resp.get('usage', {})
@@ -347,15 +447,21 @@ for i, item in enumerate(data):
 if usage:
     print(f'  [tokens: prompt={usage.get(\"prompt_tokens\",0)}, total={usage.get(\"total_tokens\",0)}]')
 " 2>/dev/null && ok "Embedding completed ($model)" || {
-            # Fallback: simpler parsing if the above fails
-            ok "Embedding response ($model) → 200"
-            echo "$rbody" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin),indent=2,ensure_ascii=False))" 2>/dev/null | head -20
+            fail "Embedding parse error ($model)"
+            cat "$tmpfile" | head -c 500
+            echo
         }
     else
         fail "Embedding failed ($model) → HTTP $code"
         echo "  Response:"
-        echo "$rbody" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin),indent=4,ensure_ascii=False))" 2>/dev/null || echo "  $rbody"
+        python3 -c "
+import json
+with open('$tmpfile') as f:
+    print(json.dumps(json.load(f), indent=2, ensure_ascii=False))
+" 2>/dev/null || cat "$tmpfile"
     fi
+
+    rm -f "$tmpfile"
     echo
 }
 
@@ -367,13 +473,15 @@ test_errors() {
     info "Running error scenario tests..."
     echo
 
+    local tmpfile code
+    tmpfile=$(mktemp)
+
     # Test 1: Invalid request body → 400
     info "[Error 1/5] Invalid request body → expect 400"
-    local resp code
-    resp=$(curl -s -w "\n%{http_code}" --max-time 10 "$BASE_URL/v1/chat/completions" \
+    code=$(do_curl "$tmpfile" --max-time 10 \
+        "$BASE_URL/v1/chat/completions" \
         -H "Content-Type: application/json" \
-        -d "this is not json" 2>&1) || true
-    code=$(echo "$resp" | tail -1)
+        -d "this is not json")
     if [[ "$code" == "400" ]]; then
         ok "Invalid body → 400"; ((passed++))
     else
@@ -382,8 +490,7 @@ test_errors() {
 
     # Test 2: Method Not Allowed → 405
     info "[Error 2/5] GET /v1/chat/completions → expect 405"
-    resp=$(curl -s -w "\n%{http_code}" --max-time 10 "$BASE_URL/v1/chat/completions" 2>&1) || true
-    code=$(echo "$resp" | tail -1)
+    code=$(do_curl "$tmpfile" --max-time 10 "$BASE_URL/v1/chat/completions")
     if [[ "$code" == "405" ]]; then
         ok "GET on POST-only endpoint → 405"; ((passed++))
     else
@@ -392,8 +499,7 @@ test_errors() {
 
     # Test 3: Method Not Allowed on Responses API → 405
     info "[Error 3/5] GET /v1/responses → expect 405"
-    resp=$(curl -s -w "\n%{http_code}" --max-time 10 "$BASE_URL/v1/responses" 2>&1) || true
-    code=$(echo "$resp" | tail -1)
+    code=$(do_curl "$tmpfile" --max-time 10 "$BASE_URL/v1/responses")
     if [[ "$code" == "405" ]]; then
         ok "GET on /v1/responses → 405"; ((passed++))
     else
@@ -402,23 +508,18 @@ test_errors() {
 
     # Test 4: Invalid model → expect error (typically 404 or provider error)
     info "[Error 4/5] Non-existent model → expect error"
-    resp=$(curl -s -w "\n%{http_code}" --max-time 15 "$BASE_URL/v1/chat/completions" \
+    code=$(do_curl "$tmpfile" --max-time 15 \
+        "$BASE_URL/v1/chat/completions" \
         -H "Content-Type: application/json" \
-        -d '{
-            "model": "this-model-does-not-exist-xyz-99999",
-            "messages": [{"role": "user", "content": "test"}]
-        }' 2>&1) || true
-    code=$(echo "$resp" | tail -1)
-    local body
-    body=$(echo "$resp" | sed '$d')
+        -d '{"model": "this-model-does-not-exist-xyz-99999", "messages": [{"role": "user", "content": "test"}]}')
     if [[ "$code" -ge 400 ]]; then
         ok "Non-existent model → $code (error as expected)"
-        echo "$body" | python3 -c "
-import sys, json
-try:
-    e = json.load(sys.stdin).get('error', {})
+        python3 -c "
+import json
+with open('$tmpfile') as f:
+    e = json.load(f).get('error', {})
     print(f\"  Error: {e.get('message', 'unknown')}\")
-except: pass" 2>/dev/null || true
+" 2>/dev/null || true
         ((passed++))
     else
         fail "Non-existent model → expected 4xx, got $code"; ((failed++))
@@ -426,22 +527,19 @@ except: pass" 2>/dev/null || true
 
     # Test 5: Empty messages array → expect error
     info "[Error 5/5] Empty messages → expect error"
-    resp=$(curl -s -w "\n%{http_code}" --max-time 15 "$BASE_URL/v1/chat/completions" \
+    code=$(do_curl "$tmpfile" --max-time 15 \
+        "$BASE_URL/v1/chat/completions" \
         -H "Content-Type: application/json" \
-        -d '{
-            "model": "gpt-4o-mini",
-            "messages": []
-        }' 2>&1) || true
-    code=$(echo "$resp" | tail -1)
-    body=$(echo "$resp" | sed '$d')
+        -d '{"model": "gpt-4o-mini", "messages": []}')
     if [[ "$code" -ge 400 ]]; then
         ok "Empty messages → $code (error as expected)"
         ((passed++))
     else
-        # Some providers may accept empty messages; treat 200 as a warning
         warn "Empty messages → $code (some providers may accept this)"
         ((passed++))
     fi
+
+    rm -f "$tmpfile"
 
     echo
     info "Error tests: $passed passed, $failed failed (total 5)"
@@ -480,8 +578,8 @@ show_help() {
     echo "  $0 all alibaba:qwen-turbo"
     echo ""
     echo "Environment:"
-    echo "  GATEWAY_URL   Base URL (default: http://localhost:8080)"
-    echo "  MAX_TOKENS    Max tokens (default: 20)"
+    echo "  GATEWAY_URL   Base URL (default: http://localhost:8088)"
+    echo "  MAX_TOKENS    Max tokens (default: 100)"
 }
 
 # --- Main ---
